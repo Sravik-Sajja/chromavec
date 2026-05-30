@@ -6,6 +6,7 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from dotenv import load_dotenv
 from fastapi.responses import RedirectResponse
+from playlists import process_playlists
 
 app = FastAPI()
 
@@ -22,7 +23,7 @@ sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
     client_id=os.getenv("SPOTIFY_CLIENT_ID"),
     client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
     redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI"),
-    scope="playlist-read-private"
+    scope="playlist-read-private playlist-read-collaborative"
 ))
 
 @app.get("/login")
@@ -34,3 +35,9 @@ def login():
 def callback(code: str):
     sp.auth_manager.get_access_token(code)
     return RedirectResponse("http://localhost:5173/home")
+
+@app.get("/playlists")
+def get_playlists():
+    playlists = sp.current_user_playlists()
+    process_playlists(sp, playlists)
+    return playlists
