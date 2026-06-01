@@ -4,7 +4,7 @@ import numpy as np
 def ingest_song(track_id):
     file_path = f"temp/{track_id}.mp3"
     
-    y, sr = librosa.load(file_path)
+    y, sr = librosa.load(file_path, sr=11025)
     
     chroma = librosa.feature.chroma_stft(y=y, sr=sr)
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)

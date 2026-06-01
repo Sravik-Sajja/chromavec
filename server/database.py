@@ -15,7 +15,7 @@ def upsert_track(track_id, vector, metadata):
         }
     ])
 
-def track_already_ingested(track_id):
-    result = index.fetch(ids=[track_id])
-    if result: return True
-    else: return False
+def fetch_already_ingested(track_ids):
+    result = index.fetch(ids=track_ids)
+    already_ingested = set(result.vectors.keys())
+    return already_ingested
