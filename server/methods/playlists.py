@@ -1,7 +1,7 @@
 import spotipy
-import yt_dlp
-from metrics import ingest_song
-from database import upsert_track, fetch_already_ingested
+from methods.metrics import ingest_song
+from methods.database import upsert_track, fetch_already_ingested
+from methods.download import download_track
 import os
 
 def process_playlists(sp, playlists):
@@ -29,40 +29,30 @@ def process_playlists(sp, playlists):
             process_tracks(new_tracks)
         except Exception as e:
             print(f"Skipping {playlist['name']}: {e}")
+            if(playlist['name'] == "Oldies"): break
             continue
+        if(playlist['name'] == "Oldies"): break
 
 def process_tracks(tracks):
     for track in tracks:
         track_id = track["id"]
-        track_name = track['name']
-        artist_name = track['artists'][0]['name']
-        query = f"{track_name} {artist_name} official audio"
         file_path = f"temp/{track_id}.mp3"
-        
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': f'temp/{track_id}.%(ext)s',
-            'quiet': True,
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-            }],
-        }
+        print(track["name"])
         
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([f"ytsearch1:{query}"])
+            download_track(track_id, track['name'], track['artists'][0]['name'])
             
             vector_data = ingest_song(track_id)
-            metadata={
+            metadata = {
                 "name": track["name"],
                 "artist": track["artists"][0]["name"],
                 "album": track["album"]["name"],
                 "duration_ms": track["duration_ms"],
             }
-            upsert_track(track_id, vector_data, metadata)
+            #upsert_track(track_id, vector_data, metadata)
         finally:
-            os.remove(file_path)
+            if os.path.exists(file_path):
+                os.remove(file_path)
 
 if __name__ == "__main__":
     process_tracks([

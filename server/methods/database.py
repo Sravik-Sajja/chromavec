@@ -19,3 +19,21 @@ def fetch_already_ingested(track_ids):
     result = index.fetch(ids=track_ids)
     already_ingested = set(result.vectors.keys())
     return already_ingested
+
+def fetch_similarities(vector):
+    results = index.query(
+        vector=vector,
+        top_k=100,
+        include_metadata=True,
+        include_values=True
+    )
+    return results
+
+if __name__ == "__main__":
+    results = index.query(
+        vector=[0.0] * 36,
+        top_k=1000,
+        include_metadata=True
+    )
+    for match in results.matches:
+        print(match.id, match.metadata.get('name'), match.metadata.get('artist'))

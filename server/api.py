@@ -6,7 +6,7 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from dotenv import load_dotenv
 from fastapi.responses import RedirectResponse
-from playlists import process_playlists
+from methods import playlists as playlists_processor
 
 app = FastAPI()
 
@@ -39,5 +39,5 @@ def callback(code: str):
 @app.get("/playlists")
 def get_playlists():
     playlists = sp.current_user_playlists()
-    process_playlists(sp, playlists)
+    playlists_processor.process_playlists(sp, playlists)
     return playlists

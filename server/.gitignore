@@ -1,5 +1,5 @@
 .env
 .cache
 __pycache__
-temp/*
-!temp/.gitkeep
+methods/temp/*
+!methods/temp/.gitkeep
