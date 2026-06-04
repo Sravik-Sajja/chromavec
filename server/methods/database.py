@@ -28,12 +28,3 @@ def fetch_similarities(vector):
         include_values=True
     )
     return results
-
-if __name__ == "__main__":
-    results = index.query(
-        vector=[0.0] * 36,
-        top_k=1000,
-        include_metadata=True
-    )
-    for match in results.matches:
-        print(match.id, match.metadata.get('name'), match.metadata.get('artist'))

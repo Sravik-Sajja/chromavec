@@ -7,17 +7,21 @@ import os
 def process_playlists(sp, playlists):
     for playlist in playlists['items']:
         try:
-            all_tracks = sp.playlist_tracks(playlist['id'])
-            
             # collect all track ids in playlist
+            all_tracks = sp.playlist_tracks(playlist['id'])
             track_ids = []
             track_map = {}
-            for item in all_tracks['items']:
-                track = item.get('item')
-                if not track:
-                    continue
-                track_ids.append(track['id'])
-                track_map[track['id']] = track
+
+            while all_tracks:
+                for item in all_tracks['items']:
+                    track = item.get('item')
+                    if not track:
+                        continue
+                    track_ids.append(track['id'])
+                    track_map[track['id']] = track
+                
+                # fetch next page if it exists
+                all_tracks = sp.next(all_tracks) if all_tracks['next'] else None
             
             # batch check against pinecone
             already_ingested = fetch_already_ingested(track_ids)
@@ -29,9 +33,7 @@ def process_playlists(sp, playlists):
             process_tracks(new_tracks)
         except Exception as e:
             print(f"Skipping {playlist['name']}: {e}")
-            if(playlist['name'] == "Oldies"): break
             continue
-        if(playlist['name'] == "Oldies"): break
 
 def process_tracks(tracks):
     for track in tracks:
@@ -49,7 +51,7 @@ def process_tracks(tracks):
                 "album": track["album"]["name"],
                 "duration_ms": track["duration_ms"],
             }
-            #upsert_track(track_id, vector_data, metadata)
+            upsert_track(track_id, vector_data, metadata)
         finally:
             if os.path.exists(file_path):
                 os.remove(file_path)

@@ -1,5 +1,7 @@
 .env
 .cache
 __pycache__
-methods/temp/*
-!methods/temp/.gitkeep
+temp/*
+!temp/.gitkeep
+.DS_Store
+features.csv
