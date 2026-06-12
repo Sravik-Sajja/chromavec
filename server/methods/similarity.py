@@ -59,9 +59,19 @@ def get_playlist_similarity(track_id, track_name, artist_name):
 
     scored.sort(reverse=True)
 
-    print(f"\nResults for: {track_name} by {artist_name}")
-    for score, meta in scored:
-        print(f"  {meta.get('name')} by {meta.get('artist')}: {score:.4f}")
 
     if os.path.exists(file_path):
         os.remove(file_path)
+
+    top5 = [
+        {
+            "name": meta.get("name"),
+            "artist": meta.get("artist"),
+            "score": round(score * 100, 1)
+        }
+        for score, meta in scored[:5]
+    ]
+
+    all_scores = [score for score, _ in scored]
+
+    return top5, round(float(np.mean(all_scores)) * 100, 1)

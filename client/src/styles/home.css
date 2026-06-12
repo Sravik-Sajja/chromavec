@@ -1,0 +1,50 @@
+.home-page {
+    padding: 20px;
+  }
+  
+  .search-container {
+    position: relative;
+    display: inline-block;
+    width: 100%;
+    max-width: 400px;
+  }
+  
+  .search-input {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 14px;
+    box-sizing: border-box;
+  }
+  
+  .search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #fff;
+    border: 1px solid #ccc;
+    z-index: 10;
+    max-height: 250px;
+    overflow-y: auto;
+  }
+  
+  .search-dropdown-item {
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  
+  .search-dropdown-item:hover {
+    background: #f0f0f0;
+  }
+  
+  .results {
+    margin-top: 20px;
+  }
+  
+  .mean-score {
+    margin-top: 20px;
+  }
+  
+  .playlists {
+    margin-top: 20px;
+  }
