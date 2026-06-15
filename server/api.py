@@ -39,7 +39,20 @@ def callback(code: str):
 
 @app.get("/playlists")
 def get_playlists():
+    user_id = sp.current_user()["id"]
     playlists = sp.current_user_playlists()
+    # test access
+    accessible = []
+    for p in playlists["items"]:
+        if p["owner"]["id"] == user_id:
+            accessible.append(p)
+            continue
+        try:
+            sp.playlist_tracks(p["id"], limit=1)
+            accessible.append(p)
+        except Exception:
+            continue
+    playlists["items"] = accessible
     #playlists_processor.process_playlists(sp, playlists)
     return playlists
 

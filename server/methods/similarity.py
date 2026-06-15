@@ -72,6 +72,7 @@ def get_playlist_similarity(track_id, track_name, artist_name):
         for score, meta in scored[:5]
     ]
 
-    all_scores = [score for score, _ in scored]
+    num_tracks_for_mean = len(scored)/2
+    all_scores = [score for score, _ in scored[:num_tracks_for_mean]]
 
     return top5, round(float(np.mean(all_scores)) * 100, 1)
