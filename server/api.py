@@ -53,7 +53,7 @@ def get_playlists():
         except Exception:
             continue
     playlists["items"] = accessible
-    #playlists_processor.process_playlists(sp, playlists)
+    playlists = playlists_processor.process_playlists(sp, playlists)
     return playlists
 
 @app.get("/track-search")

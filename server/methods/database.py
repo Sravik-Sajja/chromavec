@@ -15,6 +15,16 @@ def upsert_track(track_id, vector, metadata):
         }
     ])
 
+def upsert_batch_of_tracks(records):
+    index.upsert(vectors=[
+        {
+            "id": track_id,
+            "values": vector,
+            "metadata": metadata
+        }
+        for track_id, vector, metadata in records
+    ])
+
 def fetch_already_ingested(track_ids):
     result = index.fetch(ids=track_ids)
     already_ingested = set(result.vectors.keys())

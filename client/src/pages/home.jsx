@@ -151,7 +151,7 @@ function Home() {
                   <div className="playlist-info">
                     <span className="playlist-name">{playlist.name}</span>
                     <span className="playlist-track-count">
-                      {playlist.items?.total != null ? `${playlist.items.total} tracks` : ''}
+                      {playlist.items.total != null ? `${playlist.total_ingested}/${playlist.items.total} processed` : ''}
                     </span>
                   </div>
 
