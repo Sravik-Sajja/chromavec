@@ -28,6 +28,8 @@ def process_playlists(sp, playlists):
             # batch check against pinecone
             already_ingested = fetch_already_ingested(track_ids)
 
+            playlist['track_ids'] = track_ids
+
             # only process new tracks
             new_tracks = [track_map[tid] for tid in track_ids if tid not in already_ingested]
             print(f"{playlist['name']}: {len(already_ingested)} cached, {len(new_tracks)} new")
@@ -36,6 +38,8 @@ def process_playlists(sp, playlists):
             playlist['total_ingested'] = total_ingested + len(already_ingested)
         except Exception as e:
             print(f"Skipping {playlist['name']}: {e}")
+            playlist['track_ids'] = []
+            playlist['total_ingested'] = 0
             continue
     return playlists
 

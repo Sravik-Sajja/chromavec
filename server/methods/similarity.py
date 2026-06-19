@@ -1,6 +1,6 @@
 from methods.metrics import ingest_song
 from methods.download import download_track
-from methods.database import fetch_similarities
+from methods.database import fetch_vectors_for_ids
 import numpy as np
 import os
 
@@ -44,35 +44,45 @@ def weighted_cosine(v1, v2):
         return 0.0
     return float(np.dot(z1, z2) / denom)
 
-def get_playlist_similarity(track_id, track_name, artist_name):
+
+def get_query_vector(track_id, track_name, artist_name):
+    cached = fetch_vectors_for_ids([track_id])
+    if track_id in cached:
+        return cached[track_id]["values"]
+ 
     file_path = f"temp/{track_id}.mp3"
-    download_track(track_id, track_name, artist_name)
-    query_vector = np.array(ingest_song(track_id))
-
-    results = fetch_similarities(query_vector.tolist())
-
+    try:
+        download_track(track_id, track_name, artist_name)
+        return ingest_song(track_id)
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+ 
+def score_playlist(query_vector, playlist_track_ids):
+    stored = fetch_vectors_for_ids(playlist_track_ids)
+ 
+    if not stored:
+        return [], 0.0
+ 
     scored = []
-    for match in results.matches:
-        stored = np.array(match.values)
-        score = weighted_cosine(query_vector, stored)
-        scored.append((score, match.metadata))
-
+    for tid, obj in stored.items():
+        score = weighted_cosine(query_vector, obj["values"])
+        scored.append((score, obj["metadata"]))
+ 
     scored.sort(reverse=True)
-
-
-    if os.path.exists(file_path):
-        os.remove(file_path)
-
+ 
+    # mean over top half
+    num_tracks_for_mean = max(1, len(scored) // 2)
+    top_half = scored[:num_tracks_for_mean]
+    mean_score = float(np.mean([s for s, _ in top_half]))
+ 
     top5 = [
         {
             "name": meta.get("name"),
             "artist": meta.get("artist"),
-            "score": round(score * 100, 1)
+            "score": round(score * 100, 1),
         }
         for score, meta in scored[:5]
     ]
-
-    num_tracks_for_mean = len(scored)/2
-    all_scores = [score for score, _ in scored[:num_tracks_for_mean]]
-
-    return top5, round(float(np.mean(all_scores)) * 100, 1)
+ 
+    return top5, round(mean_score * 100, 1)

@@ -88,18 +88,26 @@ def track_search(q: str):
 
     return {"items": items}
 
-
+class PlaylistEntry(BaseModel):
+    playlist_id: str
+    track_ids: list[str]
+ 
 class SearchQuery(BaseModel):
+    track_id: str
     track_name: str
     artist_name: str
+    playlists: list[PlaylistEntry]
 
 @app.post("/search")
 def search_song(query: SearchQuery):
-    track_name = query.track_name
-    artist_name = query.artist_name
-    track_id = f"search_{track_name + artist_name}"
     try:
-        top5, mean = similarity_processor.get_playlist_similarity(track_id, track_name, artist_name)
-        return {"top5": top5, "mean": mean}
+        query_vector = similarity_processor.get_query_vector(query.track_id, query.track_name, query.artist_name)
+ 
+        results = {}
+        for entry in query.playlists:
+            top5, mean = similarity_processor.score_playlist(query_vector, entry.track_ids)
+            results[entry.playlist_id] = {"top5": top5, "mean": mean}
+ 
+        return {"results": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

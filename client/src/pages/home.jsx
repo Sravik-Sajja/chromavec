@@ -9,10 +9,10 @@ function Home() {
   const [suggestions, setSuggestions] = useState([])
   const [showDropdown, setShowDropdown] = useState(false)
 
-  const [results, setResults] = useState(null)
-  const [mean, setMean] = useState(null)
-  const [loading, setLoading] = useState(false)
+  // per-playlist results: { [playlistId]: { top5, mean } }
+  const [playlistResults, setPlaylistResults] = useState({})
   const [selected, setSelected] = useState(null)
+  const [searching, setSearching] = useState(false)
   const [expanded, setExpanded] = useState(null)
 
   const searchRef = useRef(null)
@@ -48,44 +48,42 @@ function Home() {
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (
-        searchRef.current &&
-        !searchRef.current.contains(event.target)
-      ) {
+      if (searchRef.current && !searchRef.current.contains(event.target)) {
         setShowDropdown(false)
       }
     }
-
     document.addEventListener('mousedown', handleClickOutside)
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
   const handleSelect = async (track) => {
     setQuery(`${track.name} — ${track.artist}`)
     setShowDropdown(false)
     setSelected(track)
-    setResults(null)
-    setMean(null)
     setExpanded(null)
-    setLoading(true)
+    setPlaylistResults({})
+    setSearching(true)
 
     try {
       const res = await fetch('http://localhost:8000/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ track_name: track.name, artist_name: track.artist })
+        body: JSON.stringify({
+          track_id: track.id,
+          track_name: track.name,
+          artist_name: track.artist,
+          playlists: playlists.map(p => ({
+            playlist_id: p.id,
+            track_ids: p.track_ids || [],
+          })),
+        }),
       })
       const data = await res.json()
-
-      setResults(data.top5)
-      setMean(data.mean)
+      setPlaylistResults(data.results)
     } catch (err) {
       console.error(err)
     } finally {
-      setLoading(false)
+      setSearching(false)
     }
   }
 
@@ -130,36 +128,36 @@ function Home() {
 
       {selected && (
         <div className="selected-track">
-          {loading && <span className="spinner" />}
-          analyzing <strong>{selected.name}</strong> by {selected.artist}
+          {searching && <span className="spinner" />}
+          {searching ? 'analyzing' : 'results for'} <strong>{selected.name}</strong> by {selected.artist}
         </div>
       )}
 
       {playlists.length > 0 && (
         <div className="playlists">
-          {playlists.map((playlist, idx) => {
-            const isFirst = idx === 0
+          {playlists.map(playlist => {
             const isOpen = expanded === playlist.id
-            const hasData = isFirst && mean !== null
+            const pr = playlistResults[playlist.id]
+            const mean = pr?.mean ?? null
+            const top5 = pr?.top5 ?? null
 
             return (
               <div className={`playlist-card ${isOpen ? 'open' : ''}`} key={playlist.id}>
-                <div
-                  className="playlist-row"
-                  onClick={() => toggleExpand(playlist.id)}
-                >
+                <div className="playlist-row" onClick={() => toggleExpand(playlist.id)}>
                   <div className="playlist-info">
                     <span className="playlist-name">{playlist.name}</span>
                     <span className="playlist-track-count">
-                      {playlist.items.total != null ? `${playlist.total_ingested}/${playlist.items.total} processed` : ''}
+                      {playlist.total_ingested != null
+                        ? `${playlist.total_ingested}/${playlist.items?.total ?? '?'} processed`
+                        : ''}
                     </span>
                   </div>
 
                   <div className="playlist-score">
-                    {hasData ? (
-                      <span className="score-pill" style={{ '--pct': mean }}>
-                        {mean}%
-                      </span>
+                    {searching ? (
+                      <span className="spinner" />
+                    ) : mean !== null ? (
+                      <span className="score-pill">{mean}%</span>
                     ) : (
                       <span className="score-pill score-pill-empty">—</span>
                     )}
@@ -168,9 +166,11 @@ function Home() {
                 </div>
 
                 <div className="playlist-details">
-                  {hasData ? (
+                  {searching ? (
+                    <p className="empty-state">analyzing…</p>
+                  ) : top5 && top5.length > 0 ? (
                     <ul className="top-tracks">
-                      {results.map((r, i) => (
+                      {top5.map((r, i) => (
                         <li key={i} className="top-track-item">
                           <span className="top-track-rank">{i + 1}</span>
                           <div className="top-track-meta">
@@ -183,9 +183,7 @@ function Home() {
                     </ul>
                   ) : (
                     <p className="empty-state">
-                      {isFirst
-                        ? 'search a song to see top matches'
-                        : 'not analyzed yet'}
+                      {selected && !searching ? 'no ingested tracks in this playlist' : 'search a song to see matches'}
                     </p>
                   )}
                 </div>
