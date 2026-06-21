@@ -195,6 +195,7 @@ function Home() {
                           <ul className="top-tracks">
                             {playlist.recommendations.map((r, i) => (
                               <li key={i} className="top-track-item">
+                                <span className="top-track-rank"/>
                                 <div className="top-track-meta">
                                   <span className="top-track-name">{r.name}</span>
                                   <span className="top-track-artist">{r.artist}</span>
