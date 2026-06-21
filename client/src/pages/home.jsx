@@ -168,23 +168,44 @@ function Home() {
                 <div className="playlist-details">
                   {searching ? (
                     <p className="empty-state">analyzing…</p>
-                  ) : top5 && top5.length > 0 ? (
-                    <ul className="top-tracks">
-                      {top5.map((r, i) => (
-                        <li key={i} className="top-track-item">
-                          <span className="top-track-rank">{i + 1}</span>
-                          <div className="top-track-meta">
-                            <span className="top-track-name">{r.name}</span>
-                            <span className="top-track-artist">{r.artist}</span>
-                          </div>
-                          <span className="top-track-score">{r.score}%</span>
-                        </li>
-                      ))}
-                    </ul>
                   ) : (
-                    <p className="empty-state">
-                      {selected && !searching ? 'no ingested tracks in this playlist' : 'search a song to see matches'}
-                    </p>
+                    <>
+                      {top5 && top5.length > 0 ? (
+                        <ul className="top-tracks">
+                          {top5.map((r, i) => (
+                            <li key={i} className="top-track-item">
+                              <span className="top-track-rank">{i + 1}</span>
+                              <div className="top-track-meta">
+                                <span className="top-track-name">{r.name}</span>
+                                <span className="top-track-artist">{r.artist}</span>
+                              </div>
+                              <span className="top-track-score">{r.score}%</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="empty-state">
+                          {selected && !searching ? 'no ingested tracks in this playlist' : 'search a song to see matches'}
+                        </p>
+                      )}
+
+                      {playlist.recommendations?.length > 0 && (
+                        <div className="recommendations">
+                          <p className="recommendations-label">you might also like</p>
+                          <ul className="top-tracks">
+                            {playlist.recommendations.map((r, i) => (
+                              <li key={i} className="top-track-item">
+                                <div className="top-track-meta">
+                                  <span className="top-track-name">{r.name}</span>
+                                  <span className="top-track-artist">{r.artist}</span>
+                                </div>
+                                <span className="top-track-score">{r.score}%</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </div>

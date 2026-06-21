@@ -239,7 +239,7 @@
   }
   
   .playlist-card.open .playlist-details {
-    max-height: 400px;
+    max-height: none;;
   }
   
   .top-tracks {
@@ -303,4 +303,17 @@
     margin: 0;
     text-align: left;
     border-top: 1px solid #232323;
+  }
+
+  .recommendations {
+    border-top: 1px solid #1a1a1a;
+    padding: 12px 18px 16px;
+  }
+  
+  .recommendations-label {
+    font-size: 11px;
+    color: #444;
+    margin: 0 0 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
   }

@@ -1,14 +1,17 @@
 import spotipy
 from methods.metrics import ingest_song
-from methods.database import upsert_batch_of_tracks, fetch_already_ingested
+from methods.database import upsert_batch_of_tracks, fetch_already_ingested, fetch_vectors_for_ids, query_similar
 from methods.download import download_track
+from methods.similarity import weighted_cosine
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import signal
+import numpy as np
+
 
 def process_playlists(sp, playlists):
     for playlist in playlists['items']:
-        try:
+        try: 
             # collect all track ids in playlist
             all_tracks = sp.playlist_tracks(playlist['id'])
             track_ids = []
@@ -36,12 +39,45 @@ def process_playlists(sp, playlists):
             
             total_ingested = process_tracks(new_tracks)
             playlist['total_ingested'] = total_ingested + len(already_ingested)
+
+            playlist['recommendations'] = get_playlist_recommendations(track_ids)
         except Exception as e:
             print(f"Skipping {playlist['name']}: {e}")
             playlist['track_ids'] = []
             playlist['total_ingested'] = 0
             continue
     return playlists
+
+def get_playlist_recommendations(track_ids):
+    if not track_ids:
+        return []
+
+    vectors = fetch_vectors_for_ids(track_ids)
+    if not vectors:
+        return []
+
+    track_id_set = set(track_ids)
+    avg_vector = np.array([v["values"] for v in vectors.values()]).mean(axis=0).tolist()
+
+    top_k = min(len(track_ids) + 40, 1000)
+    matches = query_similar(avg_vector, top_k=top_k)
+
+    candidate_ids = [m.id for m in matches if m.id not in track_id_set]
+    candidate_vectors = fetch_vectors_for_ids(candidate_ids)
+
+    scored = sorted([
+        (weighted_cosine(avg_vector, v["values"]), v["metadata"])
+        for v in candidate_vectors.values()
+    ], reverse=True)
+
+    return [
+        {
+            "name": meta.get("name"),
+            "artist": meta.get("artist"),
+            "score": round(score * 100, 1),
+        }
+        for score, meta in scored[:3]
+    ]
 
 def process_tracks(tracks):
     results = []

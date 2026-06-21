@@ -46,3 +46,11 @@ def fetch_vectors_for_ids(track_ids):
                 "metadata": vec_obj.metadata,
             }
     return all_vectors
+
+def query_similar(vector, top_k=50):
+    result = index.query(
+        vector=vector,
+        top_k=top_k,
+        include_metadata=True
+    )
+    return result.matches
