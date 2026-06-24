@@ -45,14 +45,14 @@ def weighted_cosine(v1, v2):
     return float(np.dot(z1, z2) / denom)
 
 
-def get_query_vector(track_id, track_name, artist_name):
+def get_query_vector(track_id, track_name, artist_name, duration_ms=None):
     cached = fetch_vectors_for_ids([track_id])
     if track_id in cached:
         return cached[track_id]["values"]
  
     file_path = f"temp/{track_id}.mp3"
     try:
-        download_track(track_id, track_name, artist_name)
+        download_track(track_id, track_name, artist_name, duration_ms)
         return ingest_song(track_id)
     finally:
         if os.path.exists(file_path):
@@ -69,7 +69,7 @@ def score_playlist(query_vector, playlist_track_ids):
         score = weighted_cosine(query_vector, obj["values"])
         scored.append((score, obj["metadata"]))
  
-    scored.sort(reverse=True)
+    scored.sort(key=lambda x: x[0], reverse=True)
  
     # mean over top half
     num_tracks_for_mean = max(1, len(scored) // 2)

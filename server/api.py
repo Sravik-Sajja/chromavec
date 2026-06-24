@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from fastapi.responses import RedirectResponse
 from methods import playlists as playlists_processor
 from methods import similarity as similarity_processor
+import traceback
 
 app = FastAPI()
 
@@ -96,6 +97,7 @@ class SearchQuery(BaseModel):
     track_id: str
     track_name: str
     artist_name: str
+    duration_ms: int | None = None
     playlists: list[PlaylistEntry]
 
 @app.post("/search")
@@ -110,4 +112,5 @@ def search_song(query: SearchQuery):
  
         return {"results": results}
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

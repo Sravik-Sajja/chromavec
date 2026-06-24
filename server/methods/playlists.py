@@ -40,7 +40,11 @@ def process_playlists(sp, playlists):
             total_ingested = process_tracks(new_tracks)
             playlist['total_ingested'] = total_ingested + len(already_ingested)
 
-            playlist['recommendations'] = get_playlist_recommendations(track_ids)
+            try:
+                playlist['recommendations'] = get_playlist_recommendations(track_ids)
+            except Exception as e:
+                print(f"Skipping {playlist['name']} recommendations: {e}")
+                continue
         except Exception as e:
             print(f"Skipping {playlist['name']}: {e}")
             playlist['track_ids'] = []
@@ -65,10 +69,12 @@ def get_playlist_recommendations(track_ids):
     candidate_ids = [m.id for m in matches if m.id not in track_id_set]
     candidate_vectors = fetch_vectors_for_ids(candidate_ids)
 
-    scored = sorted([
+    scored = [
         (weighted_cosine(avg_vector, v["values"]), v["metadata"])
         for v in candidate_vectors.values()
-    ], reverse=True)
+    ]
+
+    scored.sort(key=lambda x: x[0], reverse=True)
 
     return [
         {
@@ -100,8 +106,8 @@ def process_tracks(tracks):
 
     if results:
         total_ingested += len(results)
-        print(f"Ingested {total_ingested} tracks")
-        upsert_batch_of_tracks(results)
+        if upsert_batch_of_tracks(results):
+            print(f"Ingested {total_ingested} tracks")
     
     return total_ingested
 
@@ -110,20 +116,25 @@ def process_one(track):
         raise TimeoutError(f"Timed out on {track['name']}")
     
     signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(15)
+    signal.alarm(40)
     
     track_id = track["id"]
     file_path = f"temp/{track_id}.mp3"
     print(track["name"])
+
+    artists = track.get("artists") or []
+    artist_name = str(artists[0].get("name") or "") if artists and artists[0] else ""
+    album = track.get("album") or {}
+    album_name = str(album.get("name") or "")
     
     try:
-        download_track(track_id, track['name'], track['artists'][0]['name'])
+        download_track(track_id, track['name'], artist_name, track.get("duration_ms"))
         vector_data = ingest_song(track_id)
         metadata = {
-            "name": track["name"],
-            "artist": track["artists"][0]["name"],
-            "album": track["album"]["name"],
-            "duration_ms": track["duration_ms"],
+            "name": str(track.get("name") or ""),
+            "artist": artist_name,
+            "album": album_name,
+            "duration_ms": int(track.get("duration_ms") or 0),
         }
         return (track_id, vector_data, metadata)
     except TimeoutError:

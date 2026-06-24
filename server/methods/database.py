@@ -3,54 +3,93 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 index = pc.Index("chromavec")
 
+
 def upsert_track(track_id, vector, metadata):
-    index.upsert(vectors=[
-        {
-            "id": track_id,
-            "values": vector,
-            "metadata": metadata
-        }
-    ])
+    try:
+        return index.upsert(vectors=[
+            {
+                "id": track_id,
+                "values": vector,
+                "metadata": metadata
+            }
+        ])
+    except Exception as e:
+        print(f"[upsert_track] Failed: {e}")
+        return None
+
 
 def upsert_batch_of_tracks(records):
-    index.upsert(vectors=[
-        {
-            "id": track_id,
-            "values": vector,
-            "metadata": metadata
-        }
-        for track_id, vector, metadata in records
-    ])
+    try:
+        return index.upsert(vectors=[
+            {
+                "id": track_id,
+                "values": vector,
+                "metadata": metadata
+            }
+            for track_id, vector, metadata in records
+        ])
+    except Exception as e:
+        print(f"[upsert_batch_of_tracks] Failed upload: {e}")
+        return None
+
 
 def fetch_already_ingested(track_ids):
-    result = index.fetch(ids=track_ids)
-    already_ingested = set(result.vectors.keys())
-    return already_ingested
+    try:
+        if not track_ids:
+            return set()
+
+        result = index.fetch(ids=track_ids)
+        return set(result.vectors.keys())
+
+    except Exception as e:
+        print(f"[fetch_already_ingested] Failed: {e}")
+        return set()
 
 
 def fetch_vectors_for_ids(track_ids):
-    if not track_ids:
+    try:
+        if not track_ids:
+            return {}
+
+        all_vectors = {}
+        chunk_size = 1000
+
+        for i in range(0, len(track_ids), chunk_size):
+            chunk = track_ids[i:i + chunk_size]
+
+            try:
+                result = index.fetch(ids=chunk)
+
+                for tid, vec_obj in result.vectors.items():
+                    all_vectors[tid] = {
+                        "values": vec_obj.values,
+                        "metadata": vec_obj.metadata,
+                    }
+
+            except Exception as e:
+                print(f"[fetch_vectors_for_ids] Chunk failed ({i}-{i+chunk_size}): {e}")
+                continue
+
+        return all_vectors
+
+    except Exception as e:
+        print(f"[fetch_vectors_for_ids] Failed: {e}")
         return {}
- 
-    all_vectors = {}
-    chunk_size = 1000
-    for i in range(0, len(track_ids), chunk_size):
-        chunk = track_ids[i:i + chunk_size]
-        result = index.fetch(ids=chunk)
-        for tid, vec_obj in result.vectors.items():
-            all_vectors[tid] = {
-                "values": vec_obj.values,
-                "metadata": vec_obj.metadata,
-            }
-    return all_vectors
+
 
 def query_similar(vector, top_k=50):
-    result = index.query(
-        vector=vector,
-        top_k=top_k,
-        include_metadata=True
-    )
-    return result.matches
+    try:
+        result = index.query(
+            vector=vector,
+            top_k=top_k,
+            include_metadata=True
+        )
+        return result.matches
+
+    except Exception as e:
+        print(f"[query_similar] Failed: {e}")
+        return []

@@ -72,6 +72,7 @@ function Home() {
           track_id: track.id,
           track_name: track.name,
           artist_name: track.artist,
+          duration_ms: track.duration_ms ?? null,
           playlists: playlists.map(p => ({
             playlist_id: p.id,
             track_ids: p.track_ids || [],
