@@ -1,6 +1,34 @@
 import { useEffect, useRef, useState } from 'react'
 import '../styles/home.css'
 
+function scoreColor(pct) {
+  const clamped = Math.max(0, Math.min(100, pct))
+  const RED_MAX = 25
+  const GREEN_MIN = 80
+  let r, g
+  if (clamped <= RED_MAX) {
+    r = 220; g = 60
+  } else if (clamped >= GREEN_MIN) {
+    r = 40; g = 185
+  } else {
+    const t = (clamped - RED_MAX) / (GREEN_MIN - RED_MAX)
+    if (t < 0.5) {
+      const s = t / 0.5
+      r = 220
+      g = Math.round(60 + s * (200 - 60))
+    } else {
+      const s = (t - 0.5) / 0.5
+      r = Math.round(220 - s * (220 - 40))
+      g = Math.round(200 + s * (185 - 200))
+    }
+  }
+  return {
+    color: `rgb(${r},${g},30)`,
+    background: `rgba(${r},${g},30,0.12)`,
+    borderColor: `rgba(${r},${g},30,0.35)`,
+  }
+}
+
 function Home() {
   const [playlists, setPlaylists] = useState([])
   const fetched = useRef(false)
@@ -158,7 +186,7 @@ function Home() {
                     {searching ? (
                       <span className="spinner" />
                     ) : mean !== null ? (
-                      <span className="score-pill">{mean}%</span>
+                      <span className="score-pill" style={scoreColor(mean)}>{mean}%</span>
                     ) : (
                       <span className="score-pill score-pill-empty">—</span>
                     )}
@@ -180,7 +208,7 @@ function Home() {
                                 <span className="top-track-name">{r.name}</span>
                                 <span className="top-track-artist">{r.artist}</span>
                               </div>
-                              <span className="top-track-score">{r.score}%</span>
+                              <span className="top-track-score" style={{ color: scoreColor(r.score).color }}>{r.score}%</span>
                             </li>
                           ))}
                         </ul>
@@ -201,7 +229,7 @@ function Home() {
                                   <span className="top-track-name">{r.name}</span>
                                   <span className="top-track-artist">{r.artist}</span>
                                 </div>
-                                <span className="top-track-score">{r.score}%</span>
+                                <span className="top-track-score" style={{ color: scoreColor(r.score).color }}>{r.score}%</span>
                               </li>
                             ))}
                           </ul>

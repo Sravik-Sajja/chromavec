@@ -209,11 +209,10 @@
     font-weight: 500;
     padding: 5px 12px;
     border-radius: 999px;
-    background: rgba(29, 185, 84, 0.12);
-    color: #1db954;
-    border: 1px solid rgba(29, 185, 84, 0.3);
     min-width: 48px;
     text-align: center;
+    border: 1px solid transparent;
+    transition: color 0.3s, background 0.3s, border-color 0.3s;
   }
   
   .score-pill-empty {
@@ -292,8 +291,8 @@
   
   .top-track-score {
     font-size: 12px;
-    color: #1db954;
     flex-shrink: 0;
+    transition: color 0.3s;
   }
   
   .empty-state {
