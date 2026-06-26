@@ -81,7 +81,9 @@ def track_search(q: str):
         items.append({
             "id": t["id"],
             "name": t["name"],
-            "artist": t["artists"][0]["name"]
+            "artist": t["artists"][0]["name"],
+            "album": t["album"]["name"],
+            "duration_ms": t["duration_ms"],
         })
 
         if len(items) == 5:
@@ -97,14 +99,17 @@ class SearchQuery(BaseModel):
     track_id: str
     track_name: str
     artist_name: str
+    album_name: str | None = None
     duration_ms: int | None = None
     playlists: list[PlaylistEntry]
 
 @app.post("/search")
 def search_song(query: SearchQuery):
     try:
-        query_vector = similarity_processor.get_query_vector(query.track_id, query.track_name, query.artist_name)
- 
+        query_vector = similarity_processor.get_query_vector(
+            query.track_id, query.track_name, query.artist_name,
+            query.duration_ms, query.album_name
+        )
         results = {}
         for entry in query.playlists:
             top5, mean = similarity_processor.score_playlist(query_vector, entry.track_ids)

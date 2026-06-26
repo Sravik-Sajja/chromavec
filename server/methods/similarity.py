@@ -1,6 +1,6 @@
 from methods.metrics import ingest_song
 from methods.download import download_track
-from methods.database import fetch_vectors_for_ids
+from methods.database import fetch_vectors_for_ids, upsert_track
 import numpy as np
 import os
 
@@ -45,15 +45,28 @@ def weighted_cosine(v1, v2):
     return float(np.dot(z1, z2) / denom)
 
 
-def get_query_vector(track_id, track_name, artist_name, duration_ms=None):
+def get_query_vector(track_id, track_name, artist_name, duration_ms=None, album_name=None):
     cached = fetch_vectors_for_ids([track_id])
     if track_id in cached:
         return cached[track_id]["values"]
- 
+
     file_path = f"temp/{track_id}.mp3"
     try:
         download_track(track_id, track_name, artist_name, duration_ms)
-        return ingest_song(track_id)
+        vector = ingest_song(track_id)
+
+        metadata = {
+            "name": str(track_name or ""),
+            "artist": str(artist_name or ""),
+            "album": str(album_name or ""),
+            "duration_ms": int(duration_ms or 0),
+        }
+        try:
+            upsert_track(track_id, vector, metadata)
+        except Exception as e:
+            print(f"[get_query_vector] Failed to upsert {track_name}: {e}")
+
+        return vector
     finally:
         if os.path.exists(file_path):
             os.remove(file_path)
