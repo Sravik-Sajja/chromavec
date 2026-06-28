@@ -5,3 +5,4 @@ temp/*
 !temp/.gitkeep
 .DS_Store
 features.csv
+dump.rdb

@@ -31,13 +31,14 @@ function scoreColor(pct) {
 
 function Home() {
   const [playlists, setPlaylists] = useState([])
+  const [playlistMeta, setPlaylistMeta] = useState({}) // { [id]: { total_ingested, recommendations, track_ids } }
   const fetched = useRef(false)
+  const pollingRefs = useRef({}) // track active intervals so we can clear them
 
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState([])
   const [showDropdown, setShowDropdown] = useState(false)
 
-  // per-playlist results: { [playlistId]: { top5, mean } }
   const [playlistResults, setPlaylistResults] = useState({})
   const [selected, setSelected] = useState(null)
   const [searching, setSearching] = useState(false)
@@ -54,6 +55,43 @@ function Home() {
       .then(data => setPlaylists(data.items))
       .catch(err => console.error(err))
   }, [])
+
+  // start polling for each playlist once we have job_ids
+  useEffect(() => {
+    playlists.forEach(p => {
+      if (!p.job_id) return
+      if (pollingRefs.current[p.id]) return // already polling
+
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch(`http://localhost:8000/playlists/status/${p.job_id}`)
+          const data = await res.json()
+
+          if (data.state === 'done') {
+            clearInterval(pollingRefs.current[p.id])
+            delete pollingRefs.current[p.id]
+            setPlaylistMeta(prev => ({
+              ...prev,
+              [p.id]: data.result, // { total_ingested, recommendations, track_ids }
+            }))
+          } else if (data.state === 'error') {
+            clearInterval(pollingRefs.current[p.id])
+            delete pollingRefs.current[p.id]
+            console.error(`Job failed for playlist ${p.name}`)
+          }
+        } catch (err) {
+          console.error(`Polling error for ${p.name}:`, err)
+        }
+      }, 3000)
+
+      pollingRefs.current[p.id] = interval
+    })
+
+    // cleanup on unmount
+    return () => {
+      Object.values(pollingRefs.current).forEach(clearInterval)
+    }
+  }, [playlists])
 
   // debounced autocomplete
   useEffect(() => {
@@ -92,6 +130,14 @@ function Home() {
     setPlaylistResults({})
     setSearching(true)
 
+    // only search playlists that have finished processing
+    const readyPlaylists = playlists
+      .filter(p => playlistMeta[p.id])
+      .map(p => ({
+        playlist_id: p.id,
+        track_ids: playlistMeta[p.id].track_ids,
+      }))
+
     try {
       const res = await fetch('http://localhost:8000/search', {
         method: 'POST',
@@ -102,10 +148,7 @@ function Home() {
           artist_name: track.artist,
           album_name: track.album ?? null,
           duration_ms: track.duration_ms ?? null,
-          playlists: playlists.map(p => ({
-            playlist_id: p.id,
-            track_ids: p.track_ids || [],
-          })),
+          playlists: readyPlaylists,
         }),
       })
       const data = await res.json()
@@ -167,9 +210,11 @@ function Home() {
         <div className="playlists">
           {playlists.map(playlist => {
             const isOpen = expanded === playlist.id
+            const meta = playlistMeta[playlist.id] // undefined until job done
             const pr = playlistResults[playlist.id]
             const mean = pr?.mean ?? null
             const top5 = pr?.top5 ?? null
+            const isProcessing = !meta
 
             return (
               <div className={`playlist-card ${isOpen ? 'open' : ''}`} key={playlist.id}>
@@ -177,9 +222,9 @@ function Home() {
                   <div className="playlist-info">
                     <span className="playlist-name">{playlist.name}</span>
                     <span className="playlist-track-count">
-                      {playlist.total_ingested != null
-                        ? `${playlist.total_ingested}/${playlist.items?.total ?? '?'} processed`
-                        : ''}
+                      {isProcessing
+                        ? <span className="spinner" style={{ display: 'inline-block' }} />
+                        : `${meta.total_ingested}/${playlist.total_tracks} processed`}
                     </span>
                   </div>
 
@@ -196,7 +241,9 @@ function Home() {
                 </div>
 
                 <div className="playlist-details">
-                  {searching ? (
+                  {isProcessing ? (
+                    <p className="empty-state">processing tracks…</p>
+                  ) : searching ? (
                     <p className="empty-state">analyzing…</p>
                   ) : (
                     <>
@@ -215,17 +262,17 @@ function Home() {
                         </ul>
                       ) : (
                         <p className="empty-state">
-                          {selected && !searching ? 'no ingested tracks in this playlist' : 'search a song to see matches'}
+                          {selected ? 'no ingested tracks in this playlist' : 'search a song to see matches'}
                         </p>
                       )}
 
-                      {playlist.recommendations?.length > 0 && (
+                      {meta?.recommendations?.length > 0 && (
                         <div className="recommendations">
                           <p className="recommendations-label">you might also like</p>
                           <ul className="top-tracks">
-                            {playlist.recommendations.map((r, i) => (
+                            {meta.recommendations.map((r, i) => (
                               <li key={i} className="top-track-item">
-                                <span className="top-track-rank"/>
+                                <span className="top-track-rank" />
                                 <div className="top-track-meta">
                                   <span className="top-track-name">{r.name}</span>
                                   <span className="top-track-artist">{r.artist}</span>

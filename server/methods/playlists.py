@@ -9,48 +9,27 @@ import signal
 import numpy as np
 
 
-def process_playlists(sp, playlists):
-    for playlist in playlists['items']:
-        try: 
-            # collect all track ids in playlist
-            all_tracks = sp.playlist_tracks(playlist['id'])
-            track_ids = []
-            track_map = {}
+def process_single_playlist(playlist_id, track_ids, serializable_tracks):
+    # batch check against pinecone
+    already_ingested = fetch_already_ingested(track_ids)
+    # only process new tracks
+    new_tracks = [t for t in serializable_tracks if t['id'] not in already_ingested]
+    print(f"playlist {playlist_id}: {len(already_ingested)} cached, {len(new_tracks)} new")
 
-            while all_tracks:
-                for item in all_tracks['items']:
-                    track = item.get('item')
-                    if not track:
-                        continue
-                    track_ids.append(track['id'])
-                    track_map[track['id']] = track
-                
-                # fetch next page if it exists
-                all_tracks = sp.next(all_tracks) if all_tracks['next'] else None
-            
-            # batch check against pinecone
-            already_ingested = fetch_already_ingested(track_ids)
+    total_ingested = process_tracks(new_tracks) + len(already_ingested)
 
-            playlist['track_ids'] = track_ids
+    try:
+        recommendations = get_playlist_recommendations(track_ids)
+    except Exception as e:
+        print(f"Skipping recommendations for {playlist_id}: {e}")
+        recommendations = []
 
-            # only process new tracks
-            new_tracks = [track_map[tid] for tid in track_ids if tid not in already_ingested]
-            print(f"{playlist['name']}: {len(already_ingested)} cached, {len(new_tracks)} new")
-            
-            total_ingested = process_tracks(new_tracks)
-            playlist['total_ingested'] = total_ingested + len(already_ingested)
+    return {
+        "total_ingested": total_ingested,
+        "recommendations": recommendations,
+        "track_ids": track_ids,
+    }
 
-            try:
-                playlist['recommendations'] = get_playlist_recommendations(track_ids)
-            except Exception as e:
-                print(f"Skipping {playlist['name']} recommendations: {e}")
-                continue
-        except Exception as e:
-            print(f"Skipping {playlist['name']}: {e}")
-            playlist['track_ids'] = []
-            playlist['total_ingested'] = 0
-            continue
-    return playlists
 
 def get_playlist_recommendations(track_ids):
     if not track_ids:
@@ -73,7 +52,6 @@ def get_playlist_recommendations(track_ids):
         (weighted_cosine(avg_vector, v["values"]), v["metadata"])
         for v in candidate_vectors.values()
     ]
-
     scored.sort(key=lambda x: x[0], reverse=True)
 
     return [
@@ -108,32 +86,27 @@ def process_tracks(tracks):
         total_ingested += len(results)
         if upsert_batch_of_tracks(results):
             print(f"Ingested {total_ingested} tracks")
-    
+
     return total_ingested
 
 def process_one(track):
     def timeout_handler(signum, frame):
         raise TimeoutError(f"Timed out on {track['name']}")
-    
+
     signal.signal(signal.SIGALRM, timeout_handler)
     signal.alarm(40)
-    
+
     track_id = track["id"]
     file_path = f"temp/{track_id}.mp3"
     print(track["name"])
 
-    artists = track.get("artists") or []
-    artist_name = str(artists[0].get("name") or "") if artists and artists[0] else ""
-    album = track.get("album") or {}
-    album_name = str(album.get("name") or "")
-    
     try:
-        download_track(track_id, track['name'], artist_name, track.get("duration_ms"))
+        download_track(track_id, track['name'], track['artist'], track.get('duration_ms'))
         vector_data = ingest_song(track_id)
         metadata = {
             "name": str(track.get("name") or ""),
-            "artist": artist_name,
-            "album": album_name,
+            "artist": str(track.get("artist") or ""),
+            "album": str(track.get("album") or ""),
             "duration_ms": int(track.get("duration_ms") or 0),
         }
         return (track_id, vector_data, metadata)
