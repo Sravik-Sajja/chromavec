@@ -8,7 +8,7 @@ function Login() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1 className="logo">chromavec</h1>
+        <h1 className="logo">playlistmatch</h1>
         <p className="tagline">music recommendations based on how your songs actually sound</p>
         <button className="spotify-btn" onClick={handleLogin}>
           Connect Spotify

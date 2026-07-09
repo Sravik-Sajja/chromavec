@@ -167,7 +167,7 @@ function Home() {
   return (
     <div className="home-page">
       <div className="home-header">
-        <h1 className="home-logo">chroma<span>vec</span></h1>
+        <h1 className="home-logo">playlist<span>match</span></h1>
         <p className="home-subtitle">find out which of your playlists a song actually fits</p>
       </div>
 

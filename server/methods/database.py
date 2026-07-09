@@ -6,6 +6,7 @@ load_dotenv()
 
 
 class _LazyIndex:
+    """Defers Pinecone client/index creation until first real API call."""
     def __init__(self):
         self._index = None
 
@@ -15,11 +16,14 @@ class _LazyIndex:
             self._index = pc.Index("chromavec")
         return self._index
 
-    def __getattr__(self, name):
-        # Don't trigger client creation for dunder probes
-        if name.startswith('__') and name.endswith('__'):
-            raise AttributeError(name)
-        return getattr(self._ensure(), name)
+    def upsert(self, *args, **kwargs):
+        return self._ensure().upsert(*args, **kwargs)
+
+    def fetch(self, *args, **kwargs):
+        return self._ensure().fetch(*args, **kwargs)
+
+    def query(self, *args, **kwargs):
+        return self._ensure().query(*args, **kwargs)
 
 
 index = _LazyIndex()
