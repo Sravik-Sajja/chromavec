@@ -32,4 +32,4 @@ jobs:
 
       - name: Run tests
         # test_eval_separation.py is excluded here — it downloads real audio
-        run: pytest tests/ --ignore=tests/test_eval_separation.py -v --cov=methods --cov-report=term-missing
+        run: pytest tests/ --ignore=tests/test_eval_script.py -v --cov=methods --cov-report=term-missing
