@@ -4,13 +4,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-index = pc.Index("chromavec")
+_pc = None
+_index = None
+
+
+def _get_index():
+    global _pc, _index
+    if _index is None:
+        _pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+        _index = _pc.Index("chromavec")
+    return _index
 
 
 def upsert_track(track_id, vector, metadata):
     try:
-        return index.upsert(vectors=[
+        return _get_index().upsert(vectors=[
             {
                 "id": track_id,
                 "values": vector,
@@ -24,7 +32,7 @@ def upsert_track(track_id, vector, metadata):
 
 def upsert_batch_of_tracks(records):
     try:
-        return index.upsert(vectors=[
+        return _get_index().upsert(vectors=[
             {
                 "id": track_id,
                 "values": vector,
@@ -42,7 +50,7 @@ def fetch_already_ingested(track_ids):
         if not track_ids:
             return set()
 
-        result = index.fetch(ids=track_ids)
+        result = _get_index().fetch(ids=track_ids)
         return set(result.vectors.keys())
 
     except Exception as e:
@@ -62,7 +70,7 @@ def fetch_vectors_for_ids(track_ids):
             chunk = track_ids[i:i + chunk_size]
 
             try:
-                result = index.fetch(ids=chunk)
+                result = _get_index().fetch(ids=chunk)
 
                 for tid, vec_obj in result.vectors.items():
                     all_vectors[tid] = {
@@ -83,7 +91,7 @@ def fetch_vectors_for_ids(track_ids):
 
 def query_similar(vector, top_k=50):
     try:
-        result = index.query(
+        result = _get_index().query(
             vector=vector,
             top_k=top_k,
             include_metadata=True
