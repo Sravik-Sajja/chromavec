@@ -6,7 +6,6 @@ Reingests every song if not in local cache
 """
 
 import numpy as np
-from methods.database import fetch_similarities
 from methods.download import download_track
 from methods.metrics import ingest_song
 from methods.similarity import MEANS, STDS, WEIGHTS, weighted_cosine
