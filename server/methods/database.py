@@ -6,9 +6,6 @@ load_dotenv()
 
 
 class _LazyIndex:
-    """Defers Pinecone client/index creation until first use, so importing
-    this module doesn't require credentials or network access."""
-
     def __init__(self):
         self._index = None
 
@@ -19,6 +16,9 @@ class _LazyIndex:
         return self._index
 
     def __getattr__(self, name):
+        # Don't trigger client creation for dunder probes
+        if name.startswith('__') and name.endswith('__'):
+            raise AttributeError(name)
         return getattr(self._ensure(), name)
 
 
@@ -26,7 +26,6 @@ index = _LazyIndex()
 
 
 def reset_index():
-    """Recreate the lazy client — used after forking a new celery worker."""
     global index
     index = _LazyIndex()
 
