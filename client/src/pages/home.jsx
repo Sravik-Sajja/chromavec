@@ -32,6 +32,7 @@ function scoreColor(pct) {
 function Home() {
   const [playlists, setPlaylists] = useState([])
   const [playlistMeta, setPlaylistMeta] = useState({}) // { [id]: { total_ingested, recommendations, track_ids } }
+  const [loadingPlaylists, setLoadingPlaylists] = useState(true)
   const fetched = useRef(false)
   const pollingRefs = useRef({}) // track active intervals so we can clear them
 
@@ -52,8 +53,22 @@ function Home() {
 
     fetch('http://localhost:8000/playlists')
       .then(res => res.json())
-      .then(data => setPlaylists(data.items))
+      .then(data => {
+        setPlaylists(data.items)
+
+        // playlists whose snapshot was already cached come back with a
+        // ready-to-use result instead of a job_id — seed those in directly
+        // since there's no Celery job to poll for them
+        const seeded = {}
+        data.items.forEach(p => {
+          if (p.result) seeded[p.id] = p.result
+        })
+        if (Object.keys(seeded).length > 0) {
+          setPlaylistMeta(prev => ({ ...prev, ...seeded }))
+        }
+      })
       .catch(err => console.error(err))
+      .finally(() => setLoadingPlaylists(false))
   }, [])
 
   // start polling for each playlist once we have job_ids
@@ -206,11 +221,22 @@ function Home() {
         </div>
       )}
 
+      {loadingPlaylists && (
+        <div className="loading-row">
+          <span className="spinner" />
+          loading playlists…
+        </div>
+      )}
+
+      {!loadingPlaylists && playlists.length === 0 && (
+        <p className="empty-state">no playlists found</p>
+      )}
+
       {playlists.length > 0 && (
         <div className="playlists">
           {playlists.map(playlist => {
             const isOpen = expanded === playlist.id
-            const meta = playlistMeta[playlist.id] // undefined until job done
+            const meta = playlistMeta[playlist.id] // undefined until job done (or seeded from cache)
             const pr = playlistResults[playlist.id]
             const mean = pr?.mean ?? null
             const top5 = pr?.top5 ?? null

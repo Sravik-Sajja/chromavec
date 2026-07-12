@@ -5,8 +5,11 @@ from methods.download import download_track
 from methods.similarity import weighted_cosine
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing as mp
 import signal
 import numpy as np
+
+_FORK_CTX = mp.get_context("fork")
 
 
 def process_single_playlist(playlist_id, track_ids, serializable_tracks):
@@ -67,7 +70,7 @@ def process_tracks(tracks):
     results = []
     total_ingested = 0
 
-    with ProcessPoolExecutor(max_workers=4) as executor:
+    with ProcessPoolExecutor(max_workers=4, mp_context=_FORK_CTX) as executor:
         futures = {executor.submit(process_one, t): t for t in tracks}
         for future in as_completed(futures):
             try:

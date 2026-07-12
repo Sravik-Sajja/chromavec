@@ -11,6 +11,8 @@ from celery_app import app as celery_app
 from tasks import process_playlist_task
 import traceback
 from methods import similarity as similarity_processor
+from methods import snapshots
+from methods.playlists import get_playlist_recommendations
 
 app = FastAPI()
 
@@ -23,6 +25,8 @@ app.add_middleware(
 )
 
 load_dotenv()
+snapshots.init_db()
+
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
     client_id=os.getenv("SPOTIFY_CLIENT_ID"),
     client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
@@ -85,23 +89,59 @@ def get_playlists():
 
     result_items = []
     for p in accessible:
+        playlist_id = p["id"]
+        snapshot_id = p["snapshot_id"]
+        print(p["name"], snapshot_id)
+
         try:
-            track_ids, serializable_tracks = collect_tracks(sp, p["id"])
+            # snapshot is up to date
+            if snapshots.is_up_to_date(playlist_id, snapshot_id):
+                track_ids, _ = collect_tracks(sp, playlist_id)
+                recommendations = get_playlist_recommendations(track_ids)
+                result_items.append({
+                    "id": playlist_id,
+                    "name": p["name"],
+                    "total_tracks": len(track_ids),
+                    "job_id": None,
+                    "result": {
+                        "total_ingested": len(track_ids),
+                        "recommendations": recommendations,
+                        "track_ids": track_ids,
+                    },
+                })
+                continue
+
+            # a job for this snapshot is running, do not create another one
+            if snapshots.is_processing(playlist_id, snapshot_id):
+                existing = snapshots.get_snapshot(playlist_id)
+                result_items.append({
+                    "id": playlist_id,
+                    "name": p["name"],
+                    "total_tracks": existing["total_tracks"] or 0,
+                    "job_id": existing["job_id"],
+                    "result": None,
+                })
+                continue
+
+            track_ids, serializable_tracks = collect_tracks(sp, playlist_id)
             print(f"{p['name']}: {len(track_ids)} tracks collected")
-            job = process_playlist_task.delay(p["id"], track_ids, serializable_tracks)
+            job = process_playlist_task.delay(playlist_id, track_ids, serializable_tracks, snapshot_id)
+            snapshots.mark_processing(playlist_id, snapshot_id, job.id, len(track_ids))
             result_items.append({
-                "id": p["id"],
+                "id": playlist_id,
                 "name": p["name"],
                 "total_tracks": len(track_ids),
                 "job_id": job.id,
+                "result": None,
             })
         except Exception as e:
             print(f"Skipping {p['name']}: {e}")
             result_items.append({
-                "id": p["id"],
+                "id": playlist_id,
                 "name": p["name"],
                 "total_tracks": 0,
                 "job_id": None,
+                "result": None,
             })
 
     return {"items": result_items}

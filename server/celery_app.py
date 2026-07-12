@@ -8,5 +8,6 @@ app.conf.imports = ('tasks',)
 
 @worker_process_init.connect
 def reset_clients(**kwargs):
-    from methods import database
+    from methods import database, snapshots
     database.reset_index()
+    snapshots.init_db()
