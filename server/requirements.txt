@@ -1,5 +1,6 @@
 celery==5.6.3
 fastapi==0.139.0
+httpx==0.28.1
 librosa==0.11.0
 mutagen==1.48.0
 numpy==2.4.6
