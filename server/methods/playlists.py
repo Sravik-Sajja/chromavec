@@ -8,6 +8,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing as mp
 import signal
 import numpy as np
+import time
+from methods.locks import redis_client
 
 _FORK_CTX = mp.get_context("fork")
 
@@ -92,7 +94,34 @@ def process_tracks(tracks):
 
     return total_ingested
 
+LOCK_WAIT_SECONDS = 40
+LOCK_POLL_INTERVAL = 1
+
 def process_one(track):
+    track_id = track["id"]
+    lock = redis_client.lock(f"ingest:{track_id}", timeout=60)
+
+    if not lock.acquire(blocking=False):
+        # someone else is already downloading this exact track
+        return _wait_for_sibling(track_id)
+
+    try:
+        return _download_and_ingest(track)
+    finally:
+        lock.release()
+
+
+def _wait_for_sibling(track_id):
+    waited = 0
+    while waited < LOCK_WAIT_SECONDS:
+        time.sleep(LOCK_POLL_INTERVAL)
+        waited += LOCK_POLL_INTERVAL
+        if fetch_vectors_for_ids([track_id]):
+            return None  # sibling finished
+    return None  # gave up waiting
+
+
+def _download_and_ingest(track):
     def timeout_handler(signum, frame):
         raise TimeoutError(f"Timed out on {track['name']}")
 

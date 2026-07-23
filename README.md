@@ -10,7 +10,7 @@ PlaylistMatch analyzes the raw audio of your Spotify playlists (chroma, timbre, 
 2. **Ingest tracks** — each track is located on YouTube (via `yt-dlp`), downloaded as audio, and run through `librosa` to extract a feature vector: chroma STFT, MFCCs, spectral centroid, tempo, zero-crossing rate, and spectral rolloff. Vectors are cached in Pinecone so a track is only ever processed once.
 3. **Search a song** — pick any track, and its feature vector is compared against every ingested playlist using a weighted, z-scored cosine similarity. Each playlist gets a match score, a top-5 breakdown, and "you might also like" recommendations pulled from the wider Pinecone index.
 
-Playlist ingestion happens asynchronously via Celery so the UI can show live progress while tracks download and process in the background.
+Playlist ingestion happens asynchronously via Celery so the UI can show live progress while tracks download and process in the background. A local SQLite snapshot table tracks each playlist's Spotify `snapshot_id` so unchanged playlists skip re-ingestion entirely, and in-flight jobs aren't duplicated if the same playlist is requested again while still processing.
 
 ## Tech stack
 
@@ -21,6 +21,7 @@ Playlist ingestion happens asynchronously via Celery so the UI can show live pro
 - yt-dlp + mutagen — locating and downloading audio
 - librosa + numpy — audio feature extraction and similarity scoring
 - Pinecone — vector storage and similarity search
+- SQLite (WAL mode) — tracks per-playlist ingestion snapshots/status so the API and Celery worker can share state
 
 **Frontend**
 - React 19 + Vite
@@ -39,6 +40,8 @@ server/
     metrics.py             librosa feature extraction (ingest_song)
     download.py             yt-dlp track downloading
     database.py             Pinecone read/write helpers
+    snapshots.py             SQLite-backed playlist snapshot/status tracking (pending/processing/done/failed)
+    locks.py
   evals/                   Offline rap-vs-pop separation evaluation
   tests/                   pytest suite
 
@@ -96,6 +99,8 @@ Start the API server:
 uvicorn api:app --reload --port 8000
 ```
 
+The API will create a local `snapshots.db` SQLite file (in `server/`) on first run to track playlist ingestion state — no setup required.
+
 ### Frontend setup
 
 ```bash
@@ -125,7 +130,7 @@ pytest tests/test_eval_script.py -v
 |---|---|
 | `GET /login` | Redirects to Spotify's OAuth authorization page |
 | `GET /callback` | Spotify OAuth callback, redirects to the client app |
-| `GET /playlists` | Lists the user's accessible playlists and kicks off async ingestion jobs |
+| `GET /playlists` | Lists the user's accessible playlists. Returns ingestion results inline for playlists whose snapshot is already up to date, reuses the in-flight job for playlists still processing, and kicks off a new async ingestion job otherwise |
 | `GET /playlists/status/{job_id}` | Polls ingestion job status |
 | `GET /track-search?q=` | Autocomplete search for a track via Spotify |
 | `POST /search` | Scores a track against one or more ingested playlists |
@@ -134,4 +139,5 @@ pytest tests/test_eval_script.py -v
 
 - Audio is downloaded temporarily to `server/temp/` and deleted immediately after feature extraction.
 - Similarity scoring z-scores each feature against FMA dataset baselines (`methods/similarity.py`), clips outliers, and applies per-feature weights before computing cosine similarity — this keeps high-variance features like MFCCs from dominating the score.
+- Playlist ingestion state (which Spotify `snapshot_id` was last processed, and whether it fully succeeded) is tracked in a local SQLite table (`methods/snapshots.py`) in WAL mode, shared between the FastAPI process and the Celery worker. A snapshot only counts as "done" if every track in it was successfully ingested; partial ingestion is marked "failed" so it gets retried on the next request.
 - `server/evals/` contains a standalone script for sanity-checking that rap reference tracks score meaningfully higher against rap queries than pop queries.

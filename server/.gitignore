@@ -9,3 +9,4 @@ dump.rdb
 snapshots.db
 snapshots.db-wal
 snapshots.db-shm
+.coverage

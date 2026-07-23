@@ -13,6 +13,39 @@ from methods.playlists import (
     process_one,
 )
 
+# ── fake redis lock helpers ─────────────────────────────────────────────────
+
+class _FakeLock:
+    def __init__(self, acquired=True):
+        self._acquired = acquired
+        self.released = False
+
+    def acquire(self, blocking=True):
+        return self._acquired
+
+    def release(self):
+        self.released = True
+
+
+class _FakeRedisClient:
+    """Stand-in for methods.locks.redis_client."""
+    def __init__(self, acquired=True):
+        self._acquired = acquired
+        self.locks_created = []
+
+    def lock(self, name, **kwargs):
+        lock = _FakeLock(self._acquired)
+        self.locks_created.append((name, lock))
+        return lock
+
+
+@pytest.fixture(autouse=True)
+def uncontended_lock():
+    """Every test in this file gets an always-acquired fake lock by default,
+    so none of them hit a real Redis."""
+    with patch("methods.playlists.redis_client", _FakeRedisClient(acquired=True)):
+        yield
+
 
 # ── helpers: a synchronous stand-in for ProcessPoolExecutor ────────────────
 
@@ -275,3 +308,71 @@ def test_process_single_playlist_returns_track_ids_unchanged():
         result = process_single_playlist("pl1", track_ids, serializable_tracks)
 
     assert result["track_ids"] == track_ids
+
+def test_process_one_skips_when_lock_held_by_sibling_and_track_appears():
+    track = {"id": "id1", "name": "Song", "artist": "Artist"}
+    fake_client = _FakeRedisClient(acquired=False)
+
+    with patch("methods.playlists.redis_client", fake_client), \
+         patch("methods.playlists.time.sleep"), \
+         patch("methods.playlists.fetch_vectors_for_ids", return_value={"id1": {}}), \
+         patch("methods.playlists.download_track") as mock_download:
+        result = process_one(track)
+
+    assert result is None
+    mock_download.assert_not_called()  # never raced the sibling's download
+
+
+def test_process_one_gives_up_when_lock_held_and_track_never_appears():
+    track = {"id": "id1", "name": "Song", "artist": "Artist"}
+    fake_client = _FakeRedisClient(acquired=False)
+
+    with patch("methods.playlists.redis_client", fake_client), \
+         patch("methods.playlists.time.sleep"), \
+         patch("methods.playlists.fetch_vectors_for_ids", return_value={}), \
+         patch("methods.playlists.download_track") as mock_download:
+        result = process_one(track)
+
+    assert result is None
+    mock_download.assert_not_called()
+
+
+def test_process_one_releases_lock_after_success():
+    track = {"id": "id1", "name": "Song", "artist": "Artist", "album": "Album", "duration_ms": 1000}
+    fake_client = _FakeRedisClient(acquired=True)
+
+    with patch("methods.playlists.redis_client", fake_client), \
+         patch("methods.playlists.download_track"), \
+         patch("methods.playlists.ingest_song", return_value=[1.0]), \
+         patch("os.path.exists", return_value=False):
+        process_one(track)
+
+    _, lock = fake_client.locks_created[0]
+    assert lock.released is True
+
+
+def test_process_one_releases_lock_after_ingest_failure():
+    track = {"id": "id1", "name": "Song", "artist": "Artist"}
+    fake_client = _FakeRedisClient(acquired=True)
+
+    with patch("methods.playlists.redis_client", fake_client), \
+         patch("methods.playlists.download_track", side_effect=RuntimeError("boom")), \
+         patch("os.path.exists", return_value=False):
+        process_one(track)
+
+    _, lock = fake_client.locks_created[0]
+    assert lock.released is True  # released even though ingest raised
+
+
+def test_process_one_locks_on_track_id_specifically():
+    track = {"id": "unique-track-id", "name": "Song", "artist": "Artist"}
+    fake_client = _FakeRedisClient(acquired=True)
+
+    with patch("methods.playlists.redis_client", fake_client), \
+         patch("methods.playlists.download_track"), \
+         patch("methods.playlists.ingest_song", return_value=[1.0]), \
+         patch("os.path.exists", return_value=False):
+        process_one(track)
+
+    lock_name, _ = fake_client.locks_created[0]
+    assert lock_name == "ingest:unique-track-id"
