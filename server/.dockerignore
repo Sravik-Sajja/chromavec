@@ -1,0 +1,14 @@
+venv
+__pycache__
+*.pyc
+.env
+.cache
+.coverage
+temp/*
+!temp/.gitkeep
+features.csv
+dump.rdb
+snapshots.db
+snapshots.db-wal
+snapshots.db-shm
+.git

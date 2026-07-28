@@ -95,7 +95,7 @@ def process_tracks(tracks):
     return total_ingested
 
 LOCK_WAIT_SECONDS = 40
-LOCK_POLL_INTERVAL = 1
+LOCK_POLL_INTERVAL = 8
 
 def process_one(track):
     track_id = track["id"]

@@ -27,6 +27,9 @@ Playlist ingestion happens asynchronously via Celery so the UI can show live pro
 - React 19 + Vite
 - React Router
 
+**Infra**
+- Docker + Docker Compose — containerized local dev (API, Celery worker, Redis, client)
+
 ## Project structure
 
 ```
@@ -34,6 +37,8 @@ server/
   api.py                  FastAPI app: auth, playlists, search endpoints
   celery_app.py           Celery app configuration
   tasks.py                Celery task definitions
+  Dockerfile               Server image (shared by the API and worker containers)
+  .dockerignore
   methods/
     playlists.py          Playlist ingestion + recommendations
     similarity.py          Feature scoring, means/stds/weights, query vectors
@@ -49,21 +54,63 @@ client/
   src/
     pages/                 Login and Home pages
     styles/                Page styles
+  Dockerfile               Client (Vite dev server) image
+  .dockerignore
   vite.config.js
+
+docker-compose.yml         Orchestrates redis, api, worker, and client together
 ```
 
 ## Getting started
 
-### Prerequisites
+You can run PlaylistMatch either with **Docker** (recommended — one command, no local Python/Node/Redis/ffmpeg install needed) or **manually**.
 
+### Prerequisites (both methods)
+
+- A [Spotify Developer](https://developer.spotify.com/dashboard) app (client ID/secret + redirect URI)
+- A [Pinecone](https://www.pinecone.io/) account and index named `chromavec`
+
+---
+
+### Option A: Docker (recommended)
+
+**Additional prerequisite:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+
+Create a `.env` file in `server/`:
+
+```
+SPOTIFY_CLIENT_ID=your_client_id
+SPOTIFY_CLIENT_SECRET=your_client_secret
+SPOTIFY_REDIRECT_URI=http://localhost:8000/callback
+PINECONE_API_KEY=your_pinecone_api_key
+```
+
+> Register `http://localhost:8000/callback` as a redirect URI in your Spotify Developer Dashboard app settings, or OAuth will fail.
+
+From the repo root:
+
+```bash
+docker compose up --build
+```
+
+This starts Redis, the FastAPI server, the Celery worker, and the Vite client together:
+
+- Client: [http://localhost:5173](http://localhost:5173)
+- API: [http://localhost:8000](http://localhost:8000)
+
+Your local `server/` and `client/` source is mounted into the containers, so code changes hot-reload (`--reload` for the API, Vite's dev server for the client) without needing a rebuild. You only need to re-run `docker compose up --build` when you change `requirements.txt`, `package.json`, or a `Dockerfile` itself.
+
+---
+
+### Option B: Manual setup
+
+**Additional prerequisites:**
 - Python 3.12
 - Node.js
 - Redis (for Celery broker/backend)
-- A [Spotify Developer](https://developer.spotify.com/dashboard) app (client ID/secret + redirect URI)
-- A [Pinecone](https://www.pinecone.io/) account and index named `chromavec`
 - `ffmpeg` installed and on your `PATH` (required by `yt-dlp`/`mutagen` for audio extraction)
 
-### Backend setup
+#### Backend setup
 
 ```bash
 cd server
@@ -101,7 +148,7 @@ uvicorn api:app --reload --port 8000
 
 The API will create a local `snapshots.db` SQLite file (in `server/`) on first run to track playlist ingestion state — no setup required.
 
-### Frontend setup
+#### Frontend setup
 
 ```bash
 cd client
@@ -111,11 +158,21 @@ npm run dev
 
 Visit the client (default `http://localhost:5173`), connect your Spotify account, and search for a song once your playlists finish processing.
 
+---
+
 ### Running tests
+
+Tests run the same way whether or not you're using Docker — from inside the `server/` environment (either your local venv, or via `docker compose exec`):
 
 ```bash
 cd server
 pytest tests/ --ignore=tests/test_eval_script.py -v --cov=methods --cov-report=term-missing
+```
+
+Or, if you're using Docker and want to run them inside the running `api` container without a local Python install:
+
+```bash
+docker compose exec api pytest tests/ --ignore=tests/test_eval_script.py -v --cov=methods --cov-report=term-missing
 ```
 
 `test_eval_script.py` runs a real end-to-end rap-vs-pop separation regression check and downloads live audio, so it's excluded from CI and run separately when needed:
@@ -141,3 +198,5 @@ pytest tests/test_eval_script.py -v
 - Similarity scoring z-scores each feature against FMA dataset baselines (`methods/similarity.py`), clips outliers, and applies per-feature weights before computing cosine similarity — this keeps high-variance features like MFCCs from dominating the score.
 - Playlist ingestion state (which Spotify `snapshot_id` was last processed, and whether it fully succeeded) is tracked in a local SQLite table (`methods/snapshots.py`) in WAL mode, shared between the FastAPI process and the Celery worker. A snapshot only counts as "done" if every track in it was successfully ingested; partial ingestion is marked "failed" so it gets retried on the next request.
 - `server/evals/` contains a standalone script for sanity-checking that rap reference tracks score meaningfully higher against rap queries than pop queries.
+- The Celery broker/backend URL is read from the `REDIS_URL` env var (defaulting to `redis://localhost:6379/0` for manual/local setups); under Docker Compose it's set to `redis://redis:6379/0` so the worker can reach the `redis` service by name.
+- The client's Vite dev server is invoked directly (not via `npm run dev`) in Docker with `CI=true` set — this disables Vite's interactive stdin keypress-shortcut listener, which otherwise causes the dev server to exit as soon as it detects no interactive terminal attached.
