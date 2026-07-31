@@ -31,7 +31,7 @@ sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
     client_id=os.getenv("SPOTIFY_CLIENT_ID"),
     client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
     redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI"),
-    scope="playlist-read-private playlist-read-collaborative"
+    scope="playlist-read-private playlist-read-collaborative playlist-modify-private playlist-modify-public"
 ))
 
 @app.get("/login")
@@ -213,6 +213,18 @@ def search_song(query: SearchQuery):
             results[entry.playlist_id] = {"top5": top5, "mean": mean}
 
         return {"results": results}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+class AddTrackRequest(BaseModel):
+    track_id: str
+
+@app.post("/playlists/{playlist_id}/tracks")
+def add_track_to_playlist(playlist_id: str, body: AddTrackRequest):
+    try:
+        sp.playlist_add_items(playlist_id, [body.track_id])
+        return {"success": True}
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

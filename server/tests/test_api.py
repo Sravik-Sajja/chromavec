@@ -347,3 +347,29 @@ def test_search_returns_500_on_processing_error(client):
 def test_search_rejects_malformed_payload(client):
     resp = client.post("/search", json={"track_id": "t1"})  # missing required fields
     assert resp.status_code == 422
+
+# ── POST /playlists/{playlist_id}/tracks ────────────────────────────────────
+
+def test_add_track_to_playlist_success(client, mock_sp):
+    mock_sp.playlist_add_items.return_value = {"snapshot_id": "new_snap"}
+
+    resp = client.post("/playlists/pl1/tracks", json={"track_id": "trk1"})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"success": True}
+    mock_sp.playlist_add_items.assert_called_once_with("pl1", ["trk1"])
+
+
+def test_add_track_to_playlist_returns_500_on_spotify_error(client, mock_sp):
+    mock_sp.playlist_add_items.side_effect = Exception("spotify rejected request")
+
+    resp = client.post("/playlists/pl1/tracks", json={"track_id": "trk1"})
+
+    assert resp.status_code == 500
+    assert "spotify rejected request" in resp.json()["detail"]
+
+
+def test_add_track_to_playlist_rejects_missing_track_id(client, mock_sp):
+    resp = client.post("/playlists/pl1/tracks", json={})
+    assert resp.status_code == 422
+    mock_sp.playlist_add_items.assert_not_called()

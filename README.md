@@ -2,13 +2,17 @@
 
 Find out which of your Spotify playlists a song *actually* fits — based on how it sounds, not just genre tags or metadata.
 
-PlaylistMatch analyzes the raw audio of your Spotify playlists (chroma, timbre, spectral, and rhythm features) and lets you search for any song to see a similarity score against each of your playlists, plus the closest-matching tracks and new recommendations.
+PlaylistMatch analyzes the raw audio of your Spotify playlists (chroma, timbre, spectral, and rhythm features) and lets you search for any song to see a similarity score against each of your playlists, plus the closest-matching tracks and new recommendations — with one click to add any recommendation straight to the matching playlist.
+
+## How it works
 
 ## How it works
 
 1. **Connect Spotify** — the app authenticates via Spotify OAuth and pulls your accessible playlists.
 2. **Ingest tracks** — each track is located on YouTube (via `yt-dlp`), downloaded as audio, and run through `librosa` to extract a feature vector: chroma STFT, MFCCs, spectral centroid, tempo, zero-crossing rate, and spectral rolloff. Vectors are cached in Pinecone so a track is only ever processed once.
 3. **Search a song** — pick any track, and its feature vector is compared against every ingested playlist using a weighted, z-scored cosine similarity. Each playlist gets a match score, a top-5 breakdown, and "you might also like" recommendations pulled from the wider Pinecone index.
+4. **Add recommendations back to Spotify** — searched songs and each "you might also like" track has an add button that writes the track directly to that playlist via the Spotify API.
+
 
 Playlist ingestion happens asynchronously via Celery so the UI can show live progress while tracks download and process in the background. A local SQLite snapshot table tracks each playlist's Spotify `snapshot_id` so unchanged playlists skip re-ingestion entirely, and in-flight jobs aren't duplicated if the same playlist is requested again while still processing.
 
@@ -191,12 +195,14 @@ pytest tests/test_eval_script.py -v
 | `GET /playlists/status/{job_id}` | Polls ingestion job status |
 | `GET /track-search?q=` | Autocomplete search for a track via Spotify |
 | `POST /search` | Scores a track against one or more ingested playlists |
+| `POST /playlists/{playlist_id}/tracks` | Adds a track to the given Spotify playlist |
 
 ## Notes
 
 - Audio is downloaded temporarily to `server/temp/` and deleted immediately after feature extraction.
 - Similarity scoring z-scores each feature against FMA dataset baselines (`methods/similarity.py`), clips outliers, and applies per-feature weights before computing cosine similarity — this keeps high-variance features like MFCCs from dominating the score.
 - Playlist ingestion state (which Spotify `snapshot_id` was last processed, and whether it fully succeeded) is tracked in a local SQLite table (`methods/snapshots.py`) in WAL mode, shared between the FastAPI process and the Celery worker. A snapshot only counts as "done" if every track in it was successfully ingested; partial ingestion is marked "failed" so it gets retried on the next request.
+- Adding a recommended track to a playlist calls the Spotify API directly and doesn't wait for re-ingestion — the playlist's `snapshot_id` will change as a result, so the next `/playlists` request will re-trigger ingestion for that playlist to pick up the new track.
 - `server/evals/` contains a standalone script for sanity-checking that rap reference tracks score meaningfully higher against rap queries than pop queries.
 - The Celery broker/backend URL is read from the `REDIS_URL` env var (defaulting to `redis://localhost:6379/0` for manual/local setups); under Docker Compose it's set to `redis://redis:6379/0` so the worker can reach the `redis` service by name.
 - The client's Vite dev server is invoked directly (not via `npm run dev`) in Docker with `CI=true` set — this disables Vite's interactive stdin keypress-shortcut listener, which otherwise causes the dev server to exit as soon as it detects no interactive terminal attached.

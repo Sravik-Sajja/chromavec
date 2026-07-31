@@ -179,6 +179,35 @@ function Home() {
     setExpanded(prev => (prev === playlistId ? null : playlistId))
   }
 
+  const [addStatus, setAddStatus] = useState({}) // { [`${playlistId}-${trackId}`]: 'adding'|'added'|'error' }
+
+  const handleAddToPlaylist = async (playlistId, track) => {
+    const key = `${playlistId}-${track.id}`
+    setAddStatus(prev => ({ ...prev, [key]: 'adding' }))
+    try {
+      const res = await fetch(`http://localhost:8000/playlists/${playlistId}/tracks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ track_id: track.id }),
+      })
+      if (!res.ok) throw new Error('add failed')
+      setAddStatus(prev => ({ ...prev, [key]: 'added' }))
+
+      // keep local state consistent so the button reflects reality
+      // without needing a full playlists refetch
+      setPlaylistMeta(prev => ({
+        ...prev,
+        [playlistId]: {
+          ...prev[playlistId],
+          track_ids: [...(prev[playlistId]?.track_ids || []), track.id],
+        },
+      }))
+    } catch (err) {
+      console.error(err)
+      setAddStatus(prev => ({ ...prev, [key]: 'error' }))
+    }
+  }
+
   return (
     <div className="home-page">
       <div className="home-header">
@@ -258,7 +287,35 @@ function Home() {
                     {searching ? (
                       <span className="spinner" />
                     ) : mean !== null ? (
-                      <span className="score-pill" style={scoreColor(mean)}>{mean}%</span>
+                      <>
+                        <span className="score-pill" style={scoreColor(mean)}>{mean}%</span>
+                        {selected && (() => {
+                          const key = `${playlist.id}-${selected.id}`
+                          const alreadyInPlaylist = meta?.track_ids?.includes(selected.id)
+                          const status = alreadyInPlaylist ? 'already' : (addStatus[key] || 'idle')
+                          return (
+                            <button
+                              className={`add-track-btn ${status}`}
+                              disabled={status === 'adding' || status === 'added' || status === 'already'}
+                              onClick={(e) => {
+                                e.stopPropagation() // don't toggle the playlist card open/closed
+                                handleAddToPlaylist(playlist.id, selected)
+                              }}
+                              title={
+                                status === 'already' ? 'Already in playlist'
+                                : status === 'added' ? 'Added'
+                                : status === 'error' ? 'Failed — click to retry'
+                                : `Add ${selected.name} to this playlist`
+                              }
+                            >
+                              {status === 'already' || status === 'added' ? '✓'
+                                : status === 'adding' ? '…'
+                                : status === 'error' ? '!'
+                                : '+'}
+                            </button>
+                          )
+                        })()}
+                      </>
                     ) : (
                       <span className="score-pill score-pill-empty">—</span>
                     )}
@@ -296,16 +353,40 @@ function Home() {
                         <div className="recommendations">
                           <p className="recommendations-label">you might also like</p>
                           <ul className="top-tracks">
-                            {meta.recommendations.map((r, i) => (
-                              <li key={i} className="top-track-item">
-                                <span className="top-track-rank" />
-                                <div className="top-track-meta">
-                                  <span className="top-track-name">{r.name}</span>
-                                  <span className="top-track-artist">{r.artist}</span>
-                                </div>
-                                <span className="top-track-score" style={{ color: scoreColor(r.score).color }}>{r.score}%</span>
-                              </li>
-                            ))}
+                            {meta.recommendations.map((r, i) => {
+                              const key = `${playlist.id}-${r.id}`
+                              const alreadyInPlaylist = meta.track_ids?.includes(r.id)
+                              const status = alreadyInPlaylist ? 'already' : (addStatus[key] || 'idle')
+
+                              return (
+                                <li key={i} className="top-track-item">
+                                  <span className="top-track-rank" />
+                                  <div className="top-track-meta">
+                                    <span className="top-track-name">{r.name}</span>
+                                    <span className="top-track-artist">{r.artist}</span>
+                                  </div>
+                                  <span className="top-track-score" style={{ color: scoreColor(r.score).color }}>
+                                    {r.score}%
+                                  </span>
+                                  <button
+                                    className={`add-track-btn ${status}`}
+                                    disabled={status === 'adding' || status === 'added' || status === 'already'}
+                                    onClick={() => handleAddToPlaylist(playlist.id, r)}
+                                    title={
+                                      status === 'already' ? 'Already in playlist'
+                                      : status === 'added' ? 'Added'
+                                      : status === 'error' ? 'Failed — click to retry'
+                                      : 'Add to playlist'
+                                    }
+                                  >
+                                    {status === 'already' || status === 'added' ? '✓'
+                                      : status === 'adding' ? '…'
+                                      : status === 'error' ? '!'
+                                      : '+'}
+                                  </button>
+                                </li>
+                              )
+                            })}
                           </ul>
                         </div>
                       )}

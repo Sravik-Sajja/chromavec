@@ -316,3 +316,42 @@
     margin: 0;
     padding: 12px 18px 8px;
   }
+
+  .add-track-btn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid #2a2a2a;
+  background: #1c1c1c;
+  color: #aaa;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.add-track-btn:hover:not(:disabled) {
+  border-color: #1db954;
+  color: #1db954;
+}
+
+.add-track-btn.added {
+  border-color: #1db954;
+  color: #1db954;
+}
+
+.add-track-btn.error {
+  border-color: #d63c3c;
+  color: #d63c3c;
+}
+
+.add-track-btn:disabled {
+  cursor: default;
+}
+
+.add-track-btn.already {
+  border-color: #1db954;
+  color: #1db954;
+  background: #161616;
+}

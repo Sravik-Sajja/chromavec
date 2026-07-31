@@ -54,18 +54,19 @@ def get_playlist_recommendations(track_ids):
     candidate_vectors = fetch_vectors_for_ids(candidate_ids)
 
     scored = [
-        (weighted_cosine(avg_vector, v["values"]), v["metadata"])
-        for v in candidate_vectors.values()
+        (weighted_cosine(avg_vector, v["values"]), tid, v["metadata"])
+        for tid, v in candidate_vectors.items()
     ]
     scored.sort(key=lambda x: x[0], reverse=True)
 
     return [
         {
+            "id": tid,
             "name": meta.get("name"),
             "artist": meta.get("artist"),
             "score": round(score * 100, 1),
         }
-        for score, meta in scored[:3]
+        for score, tid, meta in scored[:3]
     ]
 
 def process_tracks(tracks):

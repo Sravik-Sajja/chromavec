@@ -211,9 +211,10 @@ def test_get_playlist_recommendations_returns_empty_when_no_vectors_found():
 
 def test_get_playlist_recommendations_excludes_existing_playlist_tracks():
     track_ids = ["id1", "id2"]
+    offset = (MEANS + 15).tolist()
     existing_vectors = {
-        "id1": {"values": MEANS.tolist(), "metadata": {}},
-        "id2": {"values": MEANS.tolist(), "metadata": {}},
+        "id1": {"values": offset, "metadata": {}},
+        "id2": {"values": offset, "metadata": {}},
     }
 
     match_in_playlist = MagicMock(id="id1")
@@ -225,16 +226,16 @@ def test_get_playlist_recommendations_excludes_existing_playlist_tracks():
         calls["fetch"].append(list(ids))
         if set(ids) == set(track_ids):
             return existing_vectors
-        return {"id3": {"values": MEANS.tolist(), "metadata": {"name": "New", "artist": "A"}}}
+        return {"id3": {"values": offset, "metadata": {"name": "New", "artist": "A"}}}
 
     with patch("methods.playlists.fetch_vectors_for_ids", side_effect=fake_fetch), \
          patch("methods.playlists.query_similar", return_value=[match_in_playlist, match_new]) as mock_query:
         result = get_playlist_recommendations(track_ids)
 
-    # candidate fetch should only have asked for id3, not id1 (already in playlist)
     assert calls["fetch"][1] == ["id3"]
     assert len(result) == 1
     assert result[0]["name"] == "New"
+    assert result[0]["id"] == "id3"
 
 
 def test_get_playlist_recommendations_caps_top_k_at_1000():
@@ -264,8 +265,23 @@ def test_get_playlist_recommendations_returns_top_3_sorted_desc():
          patch("methods.playlists.query_similar", return_value=matches):
         result = get_playlist_recommendations(track_ids)
 
-    assert len(result) == 3
-    assert [r["name"] for r in result] == ["close", "mid", "far"]
+def test_get_playlist_recommendations_includes_track_id_for_add_to_playlist():
+    track_ids = ["id1"]
+    offset = (MEANS + 15).tolist()
+    existing_vectors = {"id1": {"values": offset, "metadata": {}}}
+    candidates = {
+        "rec1": {"values": offset, "metadata": {"name": "Rec Song", "artist": "Rec Artist"}},
+    }
+    matches = [MagicMock(id="rec1")]
+
+    with patch("methods.playlists.fetch_vectors_for_ids", side_effect=[existing_vectors, candidates]), \
+         patch("methods.playlists.query_similar", return_value=matches):
+        result = get_playlist_recommendations(track_ids)
+
+    assert result[0]["id"] == "rec1"
+    assert result[0]["name"] == "Rec Song"
+    assert result[0]["artist"] == "Rec Artist"
+    assert result[0]["score"] == pytest.approx(100.0)
 
 
 # ── process_single_playlist ─────────────────────────────────────────────────
