@@ -1,32 +1,109 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import '../styles/home.css'
 
-function scoreColor(pct) {
-  const clamped = Math.max(0, Math.min(100, pct))
-  const RED_MAX = 25
-  const GREEN_MIN = 80
-  let r, g
-  if (clamped <= RED_MAX) {
-    r = 220; g = 60
-  } else if (clamped >= GREEN_MIN) {
-    r = 40; g = 185
-  } else {
-    const t = (clamped - RED_MAX) / (GREEN_MIN - RED_MAX)
-    if (t < 0.5) {
-      const s = t / 0.5
-      r = 220
-      g = Math.round(60 + s * (200 - 60))
-    } else {
-      const s = (t - 0.5) / 0.5
-      r = Math.round(220 - s * (220 - 40))
-      g = Math.round(200 + s * (185 - 200))
+// progress-bar gradient (playlist match meter): dark green -> spotify green -> bright mint highlight
+const GRADIENT_STOPS = [
+  { t: 0, c: [20, 110, 64] },
+  { t: 0.5, c: [29, 185, 84] },
+  { t: 1, c: [87, 255, 168] },
+]
+
+function colorAt(t) {
+  for (let i = 0; i < GRADIENT_STOPS.length - 1; i++) {
+    const a = GRADIENT_STOPS[i]
+    const b = GRADIENT_STOPS[i + 1]
+    if (t >= a.t && t <= b.t) {
+      const local = (t - a.t) / (b.t - a.t)
+      const rgb = a.c.map((v, idx) => Math.round(v + (b.c[idx] - v) * local))
+      return `rgb(${rgb.join(',')})`
     }
   }
-  return {
-    color: `rgb(${r},${g},30)`,
-    background: `rgba(${r},${g},30,0.12)`,
-    borderColor: `rgba(${r},${g},30,0.35)`,
+  return `rgb(${GRADIENT_STOPS.at(-1).c.join(',')})`
+}
+
+// per-song label gradient: washed-out/white = weak match -> spotify green = strong match
+const LABEL_GRADIENT_STOPS = [
+  { t: 0, c: [225, 228, 226] },
+  { t: 1, c: [29, 185, 84] },
+]
+
+function labelColorAt(t) {
+  for (let i = 0; i < LABEL_GRADIENT_STOPS.length - 1; i++) {
+    const a = LABEL_GRADIENT_STOPS[i]
+    const b = LABEL_GRADIENT_STOPS[i + 1]
+    if (t >= a.t && t <= b.t) {
+      const local = (t - a.t) / (b.t - a.t)
+      const rgb = a.c.map((v, idx) => Math.round(v + (b.c[idx] - v) * local))
+      return `rgb(${rgb.join(',')})`
+    }
   }
+  return `rgb(${LABEL_GRADIENT_STOPS.at(-1).c.join(',')})`
+}
+
+function ScoreMeter({ score, size = 'default' }) {
+  if (score === null || score === undefined) {
+    return (
+      <div className={`score-meter score-meter-empty score-meter-${size}`}>
+        <div className="meter-track" />
+        <span className="meter-value">—</span>
+      </div>
+    )
+  }
+  const clamped = Math.max(0, Math.min(100, score))
+  return (
+    <div className={`score-meter score-meter-${size}`}>
+      <div className="meter-track">
+        <div
+          className="meter-fill"
+          style={{ width: `${clamped}%`, background: colorAt(clamped / 100) }}
+        />
+      </div>
+      <span className="meter-value">{score}%</span>
+    </div>
+  )
+}
+
+function ScoreLabel({ score }) {
+  if (score === null || score === undefined) {
+    return <span className="score-label score-label-empty">—</span>
+  }
+  const clamped = Math.max(0, Math.min(100, score))
+  return (
+    <span className="score-label" style={{ color: labelColorAt(clamped / 100) }}>
+      {score}%
+    </span>
+  )
+}
+
+function AmbientVisualizer() {
+  const bars = useMemo(() => {
+    return Array.from({ length: 80 }, (_, i) => {
+      const t = i / 79
+      return {
+        color: colorAt(t),
+        height: 8 + Math.random() * 60,
+        duration: (2 + Math.random() * 2.4).toFixed(2),
+        delay: (Math.random() * -4).toFixed(2),
+      }
+    })
+  }, [])
+
+  return (
+    <div className="ambient-visualizer" aria-hidden="true">
+      {bars.map((bar, i) => (
+        <span
+          key={i}
+          className="ambient-bar"
+          style={{
+            '--color': bar.color,
+            '--h': `${bar.height}%`,
+            '--duration': `${bar.duration}s`,
+            '--delay': `${bar.delay}s`,
+          }}
+        />
+      ))}
+    </div>
+  )
 }
 
 function Home() {
@@ -208,47 +285,33 @@ function Home() {
     }
   }
 
+  // once a track is selected, rank playlists by match score so the best
+  // fit surfaces first — playlists without a score yet (still processing,
+  // or search in flight) fall to the bottom in their original order
+  const rankedPlaylists = useMemo(() => {
+    if (!selected) return playlists.map(p => ({ playlist: p, mean: null }))
+
+    const withScore = []
+    const withoutScore = []
+    playlists.forEach(p => {
+      const mean = playlistResults[p.id]?.mean
+      if (typeof mean === 'number') {
+        withScore.push({ playlist: p, mean })
+      } else {
+        withoutScore.push({ playlist: p, mean: null })
+      }
+    })
+    withScore.sort((a, b) => b.mean - a.mean)
+    return [...withScore, ...withoutScore]
+  }, [playlists, playlistResults, selected])
+
   return (
     <div className="home-page">
+      <AmbientVisualizer />
+
       <div className="home-header">
         <h1 className="home-logo">playlist<span>match</span></h1>
-        <p className="home-subtitle">find out which of your playlists a song actually fits</p>
       </div>
-
-      <div className="search-container" ref={searchRef}>
-        <input
-          className="search-input"
-          placeholder="search for a song..."
-          value={query}
-          onChange={e => {
-            setQuery(e.target.value)
-            setSelected(null)
-          }}
-          onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
-        />
-
-        {showDropdown && suggestions.length > 0 && (
-          <div className="search-dropdown">
-            {suggestions.map(track => (
-              <div
-                key={track.id}
-                className="search-dropdown-item"
-                onClick={() => handleSelect(track)}
-              >
-                <span className="track-name">{track.name}</span>
-                <span className="track-artist">{track.artist}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {selected && (
-        <div className="selected-track">
-          {searching && <span className="spinner" />}
-          {searching ? 'analyzing' : 'results for'} <strong>{selected.name}</strong> by {selected.artist}
-        </div>
-      )}
 
       {loadingPlaylists && (
         <div className="loading-row">
@@ -257,25 +320,76 @@ function Home() {
         </div>
       )}
 
+      {!loadingPlaylists && (
+        <div className="search-container" ref={searchRef}>
+          <input
+            className="search-input"
+            placeholder="search for a song..."
+            value={query}
+            onChange={e => {
+              setQuery(e.target.value)
+              setSelected(null)
+            }}
+            onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
+          />
+
+          {showDropdown && suggestions.length > 0 && (
+            <div className="search-dropdown">
+              {suggestions.map(track => (
+                <div
+                  key={track.id}
+                  className="search-dropdown-item"
+                  onClick={() => handleSelect(track)}
+                >
+                  <span className="track-name">{track.name}</span>
+                  <span className="track-artist">{track.artist}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {selected && (
+        <div className="selected-track">
+          {searching && <span className="spinner" />}
+          {searching ? 'analyzing' : 'results for'} <strong>{selected.name}</strong> by {selected.artist}
+        </div>
+      )}
+
       {!loadingPlaylists && playlists.length === 0 && (
-        <p className="empty-state">no playlists found</p>
+        <p className="empty-state empty-state-standalone">no playlists found</p>
       )}
 
       {playlists.length > 0 && (
-        <div className="playlists">
-          {playlists.map(playlist => {
+        <div className="playlist-leaderboard">
+          {rankedPlaylists.map(({ playlist, mean }, rank) => {
             const isOpen = expanded === playlist.id
             const meta = playlistMeta[playlist.id] // undefined until job done (or seeded from cache)
             const pr = playlistResults[playlist.id]
-            const mean = pr?.mean ?? null
             const top5 = pr?.top5 ?? null
             const isProcessing = !meta
+            const isBestMatch = selected && !searching && rank === 0 && mean !== null
 
             return (
-              <div className={`playlist-card ${isOpen ? 'open' : ''}`} key={playlist.id}>
+              <div
+                className={`playlist-card ${isOpen ? 'open' : ''} ${isBestMatch ? 'best-match' : ''}`}
+                key={playlist.id}
+              >
                 <div className="playlist-row" onClick={() => toggleExpand(playlist.id)}>
+                  <div className="playlist-rank">
+                    {selected && !searching && mean !== null ? (
+                      <span className="rank-number">{rank + 1}</span>
+                    ) : (
+                      <span className="rank-number rank-number-empty">·</span>
+                    )}
+                  </div>
+
                   <div className="playlist-info">
-                    <span className="playlist-name">{playlist.name}</span>
+                    <div className="playlist-name-row">
+                      <span className="playlist-name">{playlist.name}</span>
+                      {isBestMatch && <span className="best-match-tag">best match</span>}
+                    </div>
                     <span className="playlist-track-count">
                       {isProcessing
                         ? <span className="spinner" style={{ display: 'inline-block' }} />
@@ -286,46 +400,43 @@ function Home() {
                   <div className="playlist-score">
                     {searching ? (
                       <span className="spinner" />
-                    ) : mean !== null ? (
-                      <>
-                        <span className="score-pill" style={scoreColor(mean)}>{mean}%</span>
-                        {selected && (() => {
-                          const key = `${playlist.id}-${selected.id}`
-                          const alreadyInPlaylist = meta?.track_ids?.includes(selected.id)
-                          const status = alreadyInPlaylist ? 'already' : (addStatus[key] || 'idle')
-                          return (
-                            <button
-                              className={`add-track-btn ${status}`}
-                              disabled={status === 'adding' || status === 'added' || status === 'already'}
-                              onClick={(e) => {
-                                e.stopPropagation() // don't toggle the playlist card open/closed
-                                handleAddToPlaylist(playlist.id, selected)
-                              }}
-                              title={
-                                status === 'already' ? 'Already in playlist'
-                                : status === 'added' ? 'Added'
-                                : status === 'error' ? 'Failed — click to retry'
-                                : `Add ${selected.name} to this playlist`
-                              }
-                            >
-                              {status === 'already' || status === 'added' ? '✓'
-                                : status === 'adding' ? '…'
-                                : status === 'error' ? '!'
-                                : '+'}
-                            </button>
-                          )
-                        })()}
-                      </>
                     ) : (
-                      <span className="score-pill score-pill-empty">—</span>
+                      <ScoreMeter score={mean} />
                     )}
+
+                    {selected && !searching && mean !== null && (() => {
+                      const key = `${playlist.id}-${selected.id}`
+                      const alreadyInPlaylist = meta?.track_ids?.includes(selected.id)
+                      const status = alreadyInPlaylist ? 'already' : (addStatus[key] || 'idle')
+                      return (
+                        <button
+                          className={`add-track-btn ${status}`}
+                          disabled={status === 'adding' || status === 'added' || status === 'already'}
+                          onClick={(e) => {
+                            e.stopPropagation() // don't toggle the playlist card open/closed
+                            handleAddToPlaylist(playlist.id, selected)
+                          }}
+                          title={
+                            status === 'already' ? 'Already in playlist'
+                            : status === 'added' ? 'Added'
+                            : status === 'error' ? 'Failed — click to retry'
+                            : `Add ${selected.name} to this playlist`
+                          }
+                        >
+                          {status === 'already' || status === 'added' ? '✓'
+                            : status === 'adding' ? '…'
+                            : status === 'error' ? '!'
+                            : '+'}
+                        </button>
+                      )
+                    })()}
                     <span className={`chevron ${isOpen ? 'rotated' : ''}`}>▾</span>
                   </div>
                 </div>
 
                 <div className="playlist-details">
                   {isProcessing ? (
-                    <p className="empty-state">processing tracks…</p>
+                    <p className="empty-state">still listening…</p>
                   ) : searching ? (
                     <p className="empty-state">analyzing…</p>
                   ) : (
@@ -339,7 +450,7 @@ function Home() {
                                 <span className="top-track-name">{r.name}</span>
                                 <span className="top-track-artist">{r.artist}</span>
                               </div>
-                              <span className="top-track-score" style={{ color: scoreColor(r.score).color }}>{r.score}%</span>
+                              <ScoreLabel score={r.score} />
                             </li>
                           ))}
                         </ul>
@@ -359,15 +470,13 @@ function Home() {
                               const status = alreadyInPlaylist ? 'already' : (addStatus[key] || 'idle')
 
                               return (
-                                <li key={i} className="top-track-item">
+                                <li key={i} className="top-track-item recommendation-item">
                                   <span className="top-track-rank" />
                                   <div className="top-track-meta">
                                     <span className="top-track-name">{r.name}</span>
                                     <span className="top-track-artist">{r.artist}</span>
                                   </div>
-                                  <span className="top-track-score" style={{ color: scoreColor(r.score).color }}>
-                                    {r.score}%
-                                  </span>
+                                  <ScoreLabel score={r.score} />
                                   <button
                                     className={`add-track-btn ${status}`}
                                     disabled={status === 'adding' || status === 'added' || status === 'already'}
