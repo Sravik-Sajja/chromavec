@@ -64,9 +64,12 @@ def get_query_vector(track_id, track_name, artist_name, duration_ms=None, album_
         try:
             upsert_track(track_id, vector, metadata)
         except Exception as e:
-            print(f"[get_query_vector] Failed to upsert {track_name}: {e}")
+            print(f"[get_query_vector] Pinecone upsert failed for '{track_name}' (id={track_id}): {type(e).__name__}: {e}")
 
         return vector
+    except Exception as e:
+        print(f"[get_query_vector] failed for '{track_name}' by {artist_name} (id={track_id}): {type(e).__name__}: {e}")
+        raise
     finally:
         if os.path.exists(file_path):
             os.remove(file_path)

@@ -76,6 +76,7 @@ def process_tracks(tracks):
     with ProcessPoolExecutor(max_workers=4, mp_context=_FORK_CTX) as executor:
         futures = {executor.submit(process_one, t): t for t in tracks}
         for future in as_completed(futures):
+            track = futures[future]
             try:
                 result = future.result()
                 if result:
@@ -85,13 +86,14 @@ def process_tracks(tracks):
                         upsert_batch_of_tracks(results.copy())
                         results.clear()
             except Exception as e:
-                track = futures[future]
-                print(f"  Unhandled error for {track['name']}: {e}")
+                print(f"  Unhandled error for '{track['name']}' (id={track['id']}): {type(e).__name__}: {e}")
 
     if results:
         total_ingested += len(results)
         if upsert_batch_of_tracks(results):
             print(f"Ingested {total_ingested} tracks")
+        else:
+            print(f"  Final batch upsert to Pinecone FAILED — {len(results)} vectors may be lost")
 
     return total_ingested
 
@@ -131,11 +133,14 @@ def _download_and_ingest(track):
 
     track_id = track["id"]
     file_path = f"temp/{track_id}.mp3"
-    print(track["name"])
+    stage = "download"
 
     try:
         download_track(track_id, track['name'], track['artist'], track.get('duration_ms'))
+
+        stage = "ingest"
         vector_data = ingest_song(track_id)
+
         metadata = {
             "name": str(track.get("name") or ""),
             "artist": str(track.get("artist") or ""),
@@ -144,10 +149,10 @@ def _download_and_ingest(track):
         }
         return (track_id, vector_data, metadata)
     except TimeoutError:
-        print(f"  Timed out, skipping {track['name']}")
+        print(f"  Timed out during '{stage}' for '{track['name']}' (id={track_id})")
         return None
     except Exception as e:
-        print(f"  Failed {track['name']}: {e}")
+        print(f"  Failed during '{stage}' for '{track['name']}' (id={track_id}): {type(e).__name__}: {e}")
         return None
     finally:
         signal.alarm(0)
