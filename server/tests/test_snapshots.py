@@ -22,11 +22,13 @@ def test_get_snapshot_returns_none_for_unknown_playlist():
 
 
 def test_is_up_to_date_false_when_never_seen():
-    assert snapshots.is_up_to_date("pl1", "snap1") is False
+    row = snapshots.get_snapshot("pl1")
+    assert snapshots.is_up_to_date(row, "snap1") is False
 
 
 def test_is_processing_false_when_never_seen():
-    assert snapshots.is_processing("pl1", "snap1") is False
+    row = snapshots.get_snapshot("pl1")
+    assert snapshots.is_processing(row, "snap1") is False
 
 
 # ── mark_processing ──────────────────────────────────────────────────────────
@@ -44,17 +46,20 @@ def test_mark_processing_sets_processing_status():
 
 def test_is_processing_true_for_matching_snapshot():
     snapshots.mark_processing("pl1", "snap1", "job-1", total_tracks=10)
-    assert snapshots.is_processing("pl1", "snap1") is True
+    row = snapshots.get_snapshot("pl1")
+    assert snapshots.is_processing(row, "snap1") is True
 
 
 def test_is_processing_false_for_different_snapshot():
     snapshots.mark_processing("pl1", "snap1", "job-1", total_tracks=10)
-    assert snapshots.is_processing("pl1", "snap2") is False
+    row = snapshots.get_snapshot("pl1")
+    assert snapshots.is_processing(row, "snap2") is False
 
 
 def test_is_up_to_date_false_while_still_processing():
     snapshots.mark_processing("pl1", "snap1", "job-1", total_tracks=10)
-    assert snapshots.is_up_to_date("pl1", "snap1") is False
+    row = snapshots.get_snapshot("pl1")
+    assert snapshots.is_up_to_date(row, "snap1") is False
 
 
 def test_mark_processing_overwrites_prior_row_for_same_playlist():
@@ -79,7 +84,7 @@ def test_mark_result_all_ingested_marks_done():
     row = snapshots.get_snapshot("pl1")
     assert row["status"] == snapshots.STATUS_DONE
     assert row["total_ingested"] == 10
-    assert snapshots.is_up_to_date("pl1", "snap1") is True
+    assert snapshots.is_up_to_date(row, "snap1") is True
 
 
 def test_mark_result_partial_ingest_marks_failed():
@@ -89,7 +94,7 @@ def test_mark_result_partial_ingest_marks_failed():
     row = snapshots.get_snapshot("pl1")
     assert row["status"] == snapshots.STATUS_FAILED
     assert row["total_ingested"] == 8
-    assert snapshots.is_up_to_date("pl1", "snap1") is False
+    assert snapshots.is_up_to_date(row, "snap1") is False
 
 
 def test_mark_result_zero_ingested_marks_failed():
@@ -123,13 +128,15 @@ def test_mark_result_is_noop_if_snapshot_was_superseded():
 def test_is_up_to_date_false_for_superseded_snapshot_even_if_it_was_done():
     snapshots.mark_processing("pl1", "snap1", "job-1", total_tracks=10)
     snapshots.mark_result("pl1", "snap1", total_tracks=10, total_ingested=10)
-    assert snapshots.is_up_to_date("pl1", "snap1") is True  # sanity check
+    row = snapshots.get_snapshot("pl1")
+    assert snapshots.is_up_to_date(row, "snap1") is True  # sanity check
 
     # playlist changes again
     snapshots.mark_processing("pl1", "snap2", "job-2", total_tracks=11)
 
     # the old, once-"done" snapshot is no longer considered up to date
-    assert snapshots.is_up_to_date("pl1", "snap1") is False
+    row = snapshots.get_snapshot("pl1")
+    assert snapshots.is_up_to_date(row, "snap1") is False
 
 
 # ── isolation between playlists ──────────────────────────────────────────────
@@ -140,10 +147,13 @@ def test_different_playlists_tracked_independently():
 
     snapshots.mark_processing("pl2", "snapB", "job-2", total_tracks=3)
 
-    assert snapshots.is_up_to_date("pl1", "snapA") is True
-    assert snapshots.is_up_to_date("pl2", "snapB") is False
-    assert snapshots.is_processing("pl2", "snapB") is True
-    assert snapshots.is_processing("pl1", "snapA") is False
+    row1 = snapshots.get_snapshot("pl1")
+    row2 = snapshots.get_snapshot("pl2")
+
+    assert snapshots.is_up_to_date(row1, "snapA") is True
+    assert snapshots.is_up_to_date(row2, "snapB") is False
+    assert snapshots.is_processing(row2, "snapB") is True
+    assert snapshots.is_processing(row1, "snapA") is False
 
 
 # ── WAL mode ──────────────────────────────────────────────────────────────────

@@ -184,6 +184,7 @@ def test_playlists_cache_hit_skips_celery_and_returns_result_inline(client, mock
          patch("api.collect_tracks", return_value=(["t1", "t2"], [])), \
          patch("api.get_playlist_recommendations", return_value=[{"name": "Rec", "artist": "A", "score": 90.0}]), \
          patch("api.process_playlist_task") as mock_task:
+        mock_snapshots.get_snapshot.return_value = {"total_tracks": 2, "total_ingested": 2}
         mock_snapshots.is_up_to_date.return_value = True
 
         resp = client.get("/playlists")
@@ -239,34 +240,34 @@ def test_playlists_swallows_per_playlist_exceptions(client, mock_sp):
     assert item["total_tracks"] == 0
 
 
-# ── /playlists/status/{job_id} ───────────────────────────────────────────
+# ── /playlists/status (batch) ────────────────────────────────────────────
 
 def test_playlist_status_done_returns_result(client):
     with patch("api.AsyncResult") as mock_ar:
         mock_ar.return_value.state = "SUCCESS"
         mock_ar.return_value.get.return_value = {"total_ingested": 5}
 
-        resp = client.get("/playlists/status/job1")
+        resp = client.get("/playlists/status?job_ids=job1")
 
-    assert resp.json() == {"state": "done", "result": {"total_ingested": 5}}
+    assert resp.json() == {"items": {"job1": {"state": "done", "result": {"total_ingested": 5}}}}
 
 
 def test_playlist_status_failure(client):
     with patch("api.AsyncResult") as mock_ar:
         mock_ar.return_value.state = "FAILURE"
 
-        resp = client.get("/playlists/status/job1")
+        resp = client.get("/playlists/status?job_ids=job1")
 
-    assert resp.json() == {"state": "error"}
+    assert resp.json() == {"items": {"job1": {"state": "error"}}}
 
 
 def test_playlist_status_pending_by_default(client):
     with patch("api.AsyncResult") as mock_ar:
         mock_ar.return_value.state = "PENDING"
 
-        resp = client.get("/playlists/status/job1")
+        resp = client.get("/playlists/status?job_ids=job1")
 
-    assert resp.json() == {"state": "pending"}
+    assert resp.json() == {"items": {"job1": {"state": "pending"}}}
 
 
 # ── /track-search ─────────────────────────────────────────────────────────
