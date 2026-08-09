@@ -53,9 +53,8 @@ def get_snapshot(playlist_id):
         return dict(row) if row else None
 
 
-def is_up_to_date(playlist_id, snapshot_id):
+def is_up_to_date(row, snapshot_id):
     """True only if this exact snapshot was already fully ingested."""
-    row = get_snapshot(playlist_id)
     if row is None:
         return False
     return row["snapshot_id"] == snapshot_id and row["status"] == STATUS_DONE
@@ -89,9 +88,8 @@ def mark_result(playlist_id, snapshot_id, total_tracks, total_ingested):
         """, (status, total_ingested, _now(), playlist_id, snapshot_id))
 
 
-def is_processing(playlist_id, snapshot_id):
+def is_processing(row, snapshot_id):
     """True if a job for this exact snapshot is already in process."""
-    row = get_snapshot(playlist_id)
     if row is None:
         return False
     return row["snapshot_id"] == snapshot_id and row["status"] == STATUS_PROCESSING

@@ -95,30 +95,30 @@ def get_playlists():
 
         try:
             # snapshot is up to date
-            if snapshots.is_up_to_date(playlist_id, snapshot_id):
+            row = snapshots.get_snapshot(playlist_id)
+            if snapshots.is_up_to_date(row, snapshot_id):
                 track_ids, _ = collect_tracks(sp, playlist_id)
                 recommendations = get_playlist_recommendations(track_ids)
                 result_items.append({
                     "id": playlist_id,
                     "name": p["name"],
-                    "total_tracks": len(track_ids),
+                    "total_tracks": row["total_tracks"],
                     "job_id": None,
                     "result": {
-                        "total_ingested": len(track_ids),
+                        "total_ingested": row["total_ingested"],
                         "recommendations": recommendations,
                         "track_ids": track_ids,
                     },
                 })
                 continue
 
-            # a job for this snapshot is running, do not create another one
-            if snapshots.is_processing(playlist_id, snapshot_id):
-                existing = snapshots.get_snapshot(playlist_id)
+            # a job for this snapshot is already running — don't create another
+            if snapshots.is_processing(row, snapshot_id):
                 result_items.append({
                     "id": playlist_id,
                     "name": p["name"],
-                    "total_tracks": existing["total_tracks"] or 0,
-                    "job_id": existing["job_id"],
+                    "total_tracks": row["total_tracks"] or 0,
+                    "job_id": row["job_id"],
                     "result": None,
                 })
                 continue
@@ -146,16 +146,19 @@ def get_playlists():
 
     return {"items": result_items}
 
-
-@app.get("/playlists/status/{job_id}")
-def playlist_status(job_id: str):
-    result = AsyncResult(job_id, app=celery_app)
-    if result.state == 'SUCCESS':
-        return {"state": "done", "result": result.get()}
-    elif result.state == 'FAILURE':
-        return {"state": "error"}
-    return {"state": "pending"}
-
+@app.get("/playlists/status")
+def playlists_status_batch(job_ids: str):
+    ids = [j for j in job_ids.split(",") if j]
+    items = {}
+    for job_id in ids:
+        result = AsyncResult(job_id, app=celery_app)
+        if result.state == 'SUCCESS':
+            items[job_id] = {"state": "done", "result": result.get()}
+        elif result.state == 'FAILURE':
+            items[job_id] = {"state": "error"}
+        else:
+            items[job_id] = {"state": "pending"}
+    return {"items": items}
 
 @app.get("/track-search")
 def track_search(q: str):

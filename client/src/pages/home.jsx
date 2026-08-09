@@ -111,7 +111,6 @@ function Home() {
   const [playlistMeta, setPlaylistMeta] = useState({}) // { [id]: { total_ingested, recommendations, track_ids } }
   const [loadingPlaylists, setLoadingPlaylists] = useState(true)
   const fetched = useRef(false)
-  const pollingRefs = useRef({}) // track active intervals so we can clear them
 
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState([])
@@ -148,40 +147,62 @@ function Home() {
       .finally(() => setLoadingPlaylists(false))
   }, [])
 
-  // start polling for each playlist once we have job_ids
+  const playlistMetaRef = useRef({})
   useEffect(() => {
-    playlists.forEach(p => {
-      if (!p.job_id) return
-      if (pollingRefs.current[p.id]) return // already polling
+    playlistMetaRef.current = playlistMeta
+  }, [playlistMeta])
 
-      const interval = setInterval(async () => {
-        try {
-          const res = await fetch(`http://localhost:8000/playlists/status/${p.job_id}`)
-          const data = await res.json()
+  const pollIntervalRef = useRef(null)
 
-          if (data.state === 'done') {
-            clearInterval(pollingRefs.current[p.id])
-            delete pollingRefs.current[p.id]
-            setPlaylistMeta(prev => ({
-              ...prev,
-              [p.id]: data.result, // { total_ingested, recommendations, track_ids }
-            }))
-          } else if (data.state === 'error') {
-            clearInterval(pollingRefs.current[p.id])
-            delete pollingRefs.current[p.id]
-            console.error(`Job failed for playlist ${p.name}`)
+  useEffect(() => {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+
+    const tick = async () => {
+      const pending = playlists.filter(
+        p => p.job_id && !playlistMetaRef.current[p.id]
+      )
+      if (pending.length === 0) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+        return
+      }
+
+      const jobIdToPlaylistId = {}
+      pending.forEach(p => { jobIdToPlaylistId[p.job_id] = p.id })
+
+      try {
+        const jobIds = pending.map(p => p.job_id).join(',')
+        const res = await fetch(`http://localhost:8000/playlists/status?job_ids=${jobIds}`)
+        const data = await res.json()
+
+        const updates = {}
+        Object.entries(data.items).forEach(([jobId, status]) => {
+          const playlistId = jobIdToPlaylistId[jobId]
+          if (!playlistId) return
+          if (status.state === 'done') {
+            updates[playlistId] = status.result
+          } else if (status.state === 'error') {
+            console.error(`Job failed for playlist ${playlistId}`)
           }
-        } catch (err) {
-          console.error(`Polling error for ${p.name}:`, err)
+        })
+
+        if (Object.keys(updates).length > 0) {
+          setPlaylistMeta(prev => ({ ...prev, ...updates }))
         }
-      }, 3000)
+      } catch (err) {
+        console.error('Polling error:', err)
+      }
+    }
 
-      pollingRefs.current[p.id] = interval
-    })
+    const hasPending = playlists.some(
+      p => p.job_id && !playlistMetaRef.current[p.id]
+    )
+    if (hasPending) {
+      pollIntervalRef.current = setInterval(tick, 3000)
+    }
 
-    // cleanup on unmount
     return () => {
-      Object.values(pollingRefs.current).forEach(clearInterval)
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
     }
   }, [playlists])
 
