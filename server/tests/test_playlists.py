@@ -5,13 +5,15 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from methods.similarity import MEANS
+from methods.similarity import MEANS, STDS
 from methods.playlists import (
     process_single_playlist,
     get_playlist_recommendations,
     process_tracks,
     process_one,
 )
+import numpy as np
+import random
 
 # ── fake redis lock helpers ─────────────────────────────────────────────────
 
@@ -265,6 +267,10 @@ def test_get_playlist_recommendations_returns_top_3_sorted_desc():
          patch("methods.playlists.query_similar", return_value=matches):
         result = get_playlist_recommendations(track_ids)
 
+    assert len(result) == 3
+    assert [r["id"] for r in result] == ["close", "mid", "far"]
+    assert result[0]["score"] >= result[1]["score"] >= result[2]["score"]
+
 def test_get_playlist_recommendations_includes_track_id_for_add_to_playlist():
     track_ids = ["id1"]
     offset = (MEANS + 15).tolist()
@@ -281,6 +287,95 @@ def test_get_playlist_recommendations_includes_track_id_for_add_to_playlist():
     assert result[0]["id"] == "rec1"
     assert result[0]["name"] == "Rec Song"
     assert result[0]["artist"] == "Rec Artist"
+    assert result[0]["score"] == pytest.approx(100.0)
+
+def test_get_playlist_recommendations_scores_against_closest_tracks_not_centroid():
+    rng = np.random.default_rng(42)
+    direction = rng.normal(size=len(MEANS))
+
+    candidate_vec = (MEANS + direction * STDS * 0.5).tolist()
+    close_track = (MEANS + direction * STDS * 0.55).tolist()   # same direction
+    far_track = (MEANS - direction * STDS * 0.5).tolist()       # opposite direction
+
+    track_ids = ["p1", "p2"]
+    existing_vectors = {
+        "p1": {"values": close_track, "metadata": {}},
+        "p2": {"values": far_track, "metadata": {}},
+    }
+    candidates = {
+        "rec1": {"values": candidate_vec, "metadata": {"name": "Rec", "artist": "A"}},
+    }
+    matches = [MagicMock(id="rec1")]
+
+    with patch("methods.playlists.fetch_vectors_for_ids", side_effect=[existing_vectors, candidates]), \
+         patch("methods.playlists.query_similar", return_value=matches):
+        result = get_playlist_recommendations(track_ids)
+
+    # top-half of 2 tracks = 1 track = the close match only, so the score
+    # should be near-perfect, not averaged down by the far track
+    assert result[0]["score"] > 90.0
+
+def test_get_playlist_recommendations_samples_playlist_vectors_above_cap():
+    from methods.playlists import PLAYLIST_SAMPLE_CAP
+
+    track_ids = [f"pid{i}" for i in range(PLAYLIST_SAMPLE_CAP+50)]  # over the cap
+    existing_vectors = {
+        tid: {"values": (MEANS + i).tolist(), "metadata": {}}
+        for i, tid in enumerate(track_ids)
+    }
+    candidates = {
+        "rec1": {"values": MEANS.tolist(), "metadata": {"name": "Rec", "artist": "A"}},
+    }
+    matches = [MagicMock(id="rec1")]
+
+    with patch("methods.playlists.fetch_vectors_for_ids", side_effect=[existing_vectors, candidates]), \
+         patch("methods.playlists.query_similar", return_value=matches), \
+         patch("methods.playlists.random.sample", wraps=random.sample) as mock_sample:
+        get_playlist_recommendations(track_ids)
+
+    mock_sample.assert_called_once()
+    population_arg, k_arg = mock_sample.call_args.args
+    assert len(population_arg) == 250
+    assert k_arg == PLAYLIST_SAMPLE_CAP
+
+
+def test_get_playlist_recommendations_does_not_sample_at_or_below_cap():
+    from methods.playlists import PLAYLIST_SAMPLE_CAP
+
+    track_ids = [f"pid{i}" for i in range(PLAYLIST_SAMPLE_CAP)]  # exactly at cap
+    existing_vectors = {
+        tid: {"values": (MEANS + i).tolist(), "metadata": {}}
+        for i, tid in enumerate(track_ids)
+    }
+    candidates = {
+        "rec1": {"values": MEANS.tolist(), "metadata": {"name": "Rec", "artist": "A"}},
+    }
+    matches = [MagicMock(id="rec1")]
+
+    with patch("methods.playlists.fetch_vectors_for_ids", side_effect=[existing_vectors, candidates]), \
+         patch("methods.playlists.query_similar", return_value=matches), \
+         patch("methods.playlists.random.sample") as mock_sample:
+        result = get_playlist_recommendations(track_ids)
+
+    mock_sample.assert_not_called()
+    assert result[0]["id"] == "rec1"
+
+
+def test_get_playlist_recommendations_scoring_still_works_with_sampled_playlist():
+    track_ids = [f"pid{i}" for i in range(300)]
+    shared_vec = (MEANS + 15).tolist()  # offset from MEANS so z-score isn't the zero vector
+    existing_vectors = {
+        tid: {"values": shared_vec, "metadata": {}} for tid in track_ids
+    }
+    candidates = {
+        "rec1": {"values": shared_vec, "metadata": {"name": "Rec", "artist": "A"}},
+    }
+    matches = [MagicMock(id="rec1")]
+
+    with patch("methods.playlists.fetch_vectors_for_ids", side_effect=[existing_vectors, candidates]), \
+         patch("methods.playlists.query_similar", return_value=matches):
+        result = get_playlist_recommendations(track_ids)
+
     assert result[0]["score"] == pytest.approx(100.0)
 
 

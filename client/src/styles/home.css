@@ -501,3 +501,7 @@
   color: #1db954;
   background: #161616;
 }
+
+.search-error-text {
+  color: #d63c3c;
+}

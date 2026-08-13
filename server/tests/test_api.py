@@ -269,6 +269,33 @@ def test_playlist_status_pending_by_default(client):
 
     assert resp.json() == {"items": {"job1": {"state": "pending"}}}
 
+def test_playlist_status_batch_handles_multiple_jobs_with_mixed_states(client):
+    def fake_async_result(job_id, app):
+        mock = MagicMock()
+        if job_id == "job1":
+            mock.state = "SUCCESS"
+            mock.get.return_value = {"total_ingested": 5}
+        elif job_id == "job2":
+            mock.state = "FAILURE"
+        else:  # job3
+            mock.state = "PENDING"
+        return mock
+
+    with patch("api.AsyncResult", side_effect=fake_async_result):
+        resp = client.get("/playlists/status?job_ids=job1,job2,job3")
+
+    assert resp.json() == {
+        "items": {
+            "job1": {"state": "done", "result": {"total_ingested": 5}},
+            "job2": {"state": "error"},
+            "job3": {"state": "pending"},
+        }
+    }
+
+
+def test_playlist_status_batch_empty_job_ids_returns_empty_items(client):
+    resp = client.get("/playlists/status?job_ids=")
+    assert resp.json() == {"items": {}}
 
 # ── /track-search ─────────────────────────────────────────────────────────
 

@@ -10,6 +10,7 @@ import signal
 import numpy as np
 import time
 from methods.locks import redis_client
+import random
 
 _FORK_CTX = mp.get_context("fork")
 
@@ -35,7 +36,7 @@ def process_single_playlist(playlist_id, track_ids, serializable_tracks):
         "track_ids": track_ids,
     }
 
-
+PLAYLIST_SAMPLE_CAP = 200
 def get_playlist_recommendations(track_ids):
     if not track_ids:
         return []
@@ -45,16 +46,31 @@ def get_playlist_recommendations(track_ids):
         return []
 
     track_id_set = set(track_ids)
-    avg_vector = np.array([v["values"] for v in vectors.values()]).mean(axis=0).tolist()
+    all_playlist_vectors = [v["values"] for v in vectors.values()]
+
+    # cap the per-candidate scoring cost for large playlists, paying O(candidates * playlist_size) on playlists
+    if len(all_playlist_vectors) > PLAYLIST_SAMPLE_CAP:
+        playlist_vectors = random.sample(all_playlist_vectors, PLAYLIST_SAMPLE_CAP)
+    else:
+        playlist_vectors = all_playlist_vectors
 
     top_k = min(len(track_ids) + 40, 1000)
+    avg_vector = np.mean(all_playlist_vectors, axis=0).tolist()
     matches = query_similar(avg_vector, top_k=top_k)
 
     candidate_ids = [m.id for m in matches if m.id not in track_id_set]
     candidate_vectors = fetch_vectors_for_ids(candidate_ids)
 
+    def score_against_playlist(candidate_vec):
+        sims = sorted(
+            (weighted_cosine(candidate_vec, pv) for pv in playlist_vectors),
+            reverse=True,
+        )
+        top_half = sims[:max(1, len(sims) // 2)]
+        return sum(top_half) / len(top_half)
+
     scored = [
-        (weighted_cosine(avg_vector, v["values"]), tid, v["metadata"])
+        (score_against_playlist(v["values"]), tid, v["metadata"])
         for tid, v in candidate_vectors.items()
     ]
     scored.sort(key=lambda x: x[0], reverse=True)

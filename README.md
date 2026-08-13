@@ -192,7 +192,7 @@ pytest tests/test_eval_script.py -v
 | `GET /login` | Redirects to Spotify's OAuth authorization page |
 | `GET /callback` | Spotify OAuth callback, redirects to the client app |
 | `GET /playlists` | Lists the user's accessible playlists. Returns ingestion results inline for playlists whose snapshot is already up to date, reuses the in-flight job for playlists still processing, and kicks off a new async ingestion job otherwise |
-| `GET /playlists/status/{job_id}` | Polls ingestion job status |
+| `GET /playlists/status?job_ids=` | Polls ingestion job status for one or more jobs at once (comma-separated IDs), returning per-job state (`pending`/`done`/`error`) keyed by job ID |
 | `GET /track-search?q=` | Autocomplete search for a track via Spotify |
 | `POST /search` | Scores a track against one or more ingested playlists |
 | `POST /playlists/{playlist_id}/tracks` | Adds a track to the given Spotify playlist |
@@ -200,7 +200,8 @@ pytest tests/test_eval_script.py -v
 ## Notes
 
 - Audio is downloaded temporarily to `server/temp/` and deleted immediately after feature extraction.
-- Similarity scoring z-scores each feature against FMA dataset baselines (`methods/similarity.py`), clips outliers, and applies per-feature weights before computing cosine similarity — this keeps high-variance features like MFCCs from dominating the score.
+- Both playlist match scores and "you might also like" recommendation scores are computed the same way: a track is scored against every individual track in the playlist, then averaged over the top half of those per-track scores (not a single averaged "playlist vector"). This avoids diluting genuinely close matches on stylistically mixed playlists, where a single centroid vector wouldn't represent any real track in the playlist.
+- For playlists larger than 200 tracks, recommendation scoring samples 200 playlist tracks at random rather than scoring against every track, to bound the cost of scoring each of the ~1000 candidate tracks pulled from Pinecone. The initial candidate retrieval from Pinecone uses the full playlist's averaged vector.
 - Playlist ingestion state (which Spotify `snapshot_id` was last processed, and whether it fully succeeded) is tracked in a local SQLite table (`methods/snapshots.py`) in WAL mode, shared between the FastAPI process and the Celery worker. A snapshot only counts as "done" if every track in it was successfully ingested; partial ingestion is marked "failed" so it gets retried on the next request.
 - Adding a recommended track to a playlist calls the Spotify API directly and doesn't wait for re-ingestion — the playlist's `snapshot_id` will change as a result, so the next `/playlists` request will re-trigger ingestion for that playlist to pick up the new track.
 - `server/evals/` contains a standalone script for sanity-checking that rap reference tracks score meaningfully higher against rap queries than pop queries.

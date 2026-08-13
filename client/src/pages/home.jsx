@@ -119,6 +119,7 @@ function Home() {
   const [playlistResults, setPlaylistResults] = useState({})
   const [selected, setSelected] = useState(null)
   const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState(false)
   const [expanded, setExpanded] = useState(null)
 
   const searchRef = useRef(null)
@@ -207,7 +208,13 @@ function Home() {
   }, [playlists])
 
   // debounced autocomplete
+  const justSelected = useRef(false)
+
   useEffect(() => {
+    if (justSelected.current) {
+      justSelected.current = false
+      return
+    }
     if (!query.trim()) {
       setSuggestions([])
       return
@@ -236,14 +243,15 @@ function Home() {
   }, [])
 
   const handleSelect = async (track) => {
+    justSelected.current = true
     setQuery(`${track.name} — ${track.artist}`)
     setShowDropdown(false)
     setSelected(track)
     setExpanded(null)
     setPlaylistResults({})
+    setSearchError(false)
     setSearching(true)
 
-    // only search playlists that have finished processing
     const readyPlaylists = playlists
       .filter(p => playlistMeta[p.id])
       .map(p => ({
@@ -264,10 +272,17 @@ function Home() {
           playlists: readyPlaylists,
         }),
       })
+
+      if (!res.ok) {
+        throw new Error(`search failed with status ${res.status}`)
+      }
+
       const data = await res.json()
-      setPlaylistResults(data.results)
+      setPlaylistResults(data.results || {})
     } catch (err) {
       console.error(err)
+      setSearchError(true)
+      setPlaylistResults({})
     } finally {
       setSearching(false)
     }
@@ -350,6 +365,8 @@ function Home() {
             onChange={e => {
               setQuery(e.target.value)
               setSelected(null)
+              setPlaylistResults({})
+              setSearchError(false)
             }}
             onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
           />
@@ -374,7 +391,13 @@ function Home() {
       {selected && (
         <div className="selected-track">
           {searching && <span className="spinner" />}
-          {searching ? 'analyzing' : 'results for'} <strong>{selected.name}</strong> by {selected.artist}
+          {searching ? (
+            <>analyzing <strong>{selected.name}</strong> by {selected.artist}</>
+          ) : searchError ? (
+            <span className="search-error-text">could not analyze that track</span>
+          ) : (
+            <>results for <strong>{selected.name}</strong> by {selected.artist}</>
+          )}
         </div>
       )}
 
