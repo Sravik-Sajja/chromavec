@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import '../styles/home.css'
+import { usePlaylists } from '../context/PlaylistsContext'
 
 // progress-bar gradient (playlist match meter): dark green -> spotify green -> bright mint highlight
 const GRADIENT_STOPS = [
@@ -26,6 +28,23 @@ const LABEL_GRADIENT_STOPS = [
   { t: 0, c: [225, 228, 226] },
   { t: 1, c: [29, 185, 84] },
 ]
+
+function ProfileButton() {
+  const navigate = useNavigate()
+  return (
+    <button
+      className="profile-icon-btn"
+      onClick={() => navigate('/profile')}
+      aria-label="View profile"
+      title="Profile"
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
+      </svg>
+    </button>
+  )
+}
 
 function labelColorAt(t) {
   for (let i = 0; i < LABEL_GRADIENT_STOPS.length - 1; i++) {
@@ -107,10 +126,7 @@ function AmbientVisualizer() {
 }
 
 function Home() {
-  const [playlists, setPlaylists] = useState([])
-  const [playlistMeta, setPlaylistMeta] = useState({}) // { [id]: { total_ingested, recommendations, track_ids } }
-  const [loadingPlaylists, setLoadingPlaylists] = useState(true)
-  const fetched = useRef(false)
+  const { playlists, playlistMeta, setPlaylistMeta, loadingPlaylists } = usePlaylists()
 
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState([])
@@ -123,89 +139,6 @@ function Home() {
   const [expanded, setExpanded] = useState(null)
 
   const searchRef = useRef(null)
-
-  useEffect(() => {
-    if (fetched.current) return
-    fetched.current = true
-
-    fetch('http://localhost:8000/playlists')
-      .then(res => res.json())
-      .then(data => {
-        setPlaylists(data.items)
-
-        // playlists whose snapshot was already cached come back with a
-        // ready-to-use result instead of a job_id — seed those in directly
-        // since there's no Celery job to poll for them
-        const seeded = {}
-        data.items.forEach(p => {
-          if (p.result) seeded[p.id] = p.result
-        })
-        if (Object.keys(seeded).length > 0) {
-          setPlaylistMeta(prev => ({ ...prev, ...seeded }))
-        }
-      })
-      .catch(err => console.error(err))
-      .finally(() => setLoadingPlaylists(false))
-  }, [])
-
-  const playlistMetaRef = useRef({})
-  useEffect(() => {
-    playlistMetaRef.current = playlistMeta
-  }, [playlistMeta])
-
-  const pollIntervalRef = useRef(null)
-
-  useEffect(() => {
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
-
-    const tick = async () => {
-      const pending = playlists.filter(
-        p => p.job_id && !playlistMetaRef.current[p.id]
-      )
-      if (pending.length === 0) {
-        clearInterval(pollIntervalRef.current)
-        pollIntervalRef.current = null
-        return
-      }
-
-      const jobIdToPlaylistId = {}
-      pending.forEach(p => { jobIdToPlaylistId[p.job_id] = p.id })
-
-      try {
-        const jobIds = pending.map(p => p.job_id).join(',')
-        const res = await fetch(`http://localhost:8000/playlists/status?job_ids=${jobIds}`)
-        const data = await res.json()
-
-        const updates = {}
-        Object.entries(data.items).forEach(([jobId, status]) => {
-          const playlistId = jobIdToPlaylistId[jobId]
-          if (!playlistId) return
-          if (status.state === 'done') {
-            updates[playlistId] = status.result
-          } else if (status.state === 'error') {
-            console.error(`Job failed for playlist ${playlistId}`)
-          }
-        })
-
-        if (Object.keys(updates).length > 0) {
-          setPlaylistMeta(prev => ({ ...prev, ...updates }))
-        }
-      } catch (err) {
-        console.error('Polling error:', err)
-      }
-    }
-
-    const hasPending = playlists.some(
-      p => p.job_id && !playlistMetaRef.current[p.id]
-    )
-    if (hasPending) {
-      pollIntervalRef.current = setInterval(tick, 3000)
-    }
-
-    return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
-    }
-  }, [playlists])
 
   // debounced autocomplete
   const justSelected = useRef(false)
@@ -344,6 +277,7 @@ function Home() {
   return (
     <div className="home-page">
       <AmbientVisualizer />
+      <ProfileButton />
 
       <div className="home-header">
         <h1 className="home-logo">playlist<span>match</span></h1>

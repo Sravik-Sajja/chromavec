@@ -6,15 +6,15 @@ PlaylistMatch analyzes the raw audio of your Spotify playlists (chroma, timbre, 
 
 ## How it works
 
-## How it works
-
 1. **Connect Spotify** — the app authenticates via Spotify OAuth and pulls your accessible playlists.
 2. **Ingest tracks** — each track is located on YouTube (via `yt-dlp`), downloaded as audio, and run through `librosa` to extract a feature vector: chroma STFT, MFCCs, spectral centroid, tempo, zero-crossing rate, and spectral rolloff. Vectors are cached in Pinecone so a track is only ever processed once.
 3. **Search a song** — pick any track, and its feature vector is compared against every ingested playlist using a weighted, z-scored cosine similarity. Each playlist gets a match score, a top-5 breakdown, and "you might also like" recommendations pulled from the wider Pinecone index.
 4. **Add recommendations back to Spotify** — searched songs and each "you might also like" track has an add button that writes the track directly to that playlist via the Spotify API.
-
+5. **View your profile** — a profile icon in the top-right of the home screen opens a profile page showing your Spotify account info and profile data
 
 Playlist ingestion happens asynchronously via Celery so the UI can show live progress while tracks download and process in the background. A local SQLite snapshot table tracks each playlist's Spotify `snapshot_id` so unchanged playlists skip re-ingestion entirely, and in-flight jobs aren't duplicated if the same playlist is requested again while still processing.
+
+Both playlist ingestion state and profile data are cached client-side in React context, so navigating between the home and profile pages doesn't re-trigger loading states or refetch data that's already been fetched this session.
 
 ## Tech stack
 
@@ -30,6 +30,7 @@ Playlist ingestion happens asynchronously via Celery so the UI can show live pro
 **Frontend**
 - React 19 + Vite
 - React Router
+- React Context — cross-page caching for playlist ingestion state and profile data
 
 **Infra**
 - Docker + Docker Compose — containerized local dev (API, Celery worker, Redis, client)
@@ -38,7 +39,7 @@ Playlist ingestion happens asynchronously via Celery so the UI can show live pro
 
 ```
 server/
-  api.py                  FastAPI app: auth, playlists, search endpoints
+  api.py                  FastAPI app: auth, playlists, search, profile endpoints
   celery_app.py           Celery app configuration
   tasks.py                Celery task definitions
   Dockerfile               Server image (shared by the API and worker containers)
@@ -56,7 +57,8 @@ server/
 
 client/
   src/
-    pages/                 Login and Home pages
+    pages/                 Login, Home, and Profile pages
+    context/                PlaylistsContext (ingestion state/polling) and ProfileContext (account data), both cached for the session
     styles/                Page styles
   Dockerfile               Client (Vite dev server) image
   .dockerignore
@@ -196,6 +198,16 @@ pytest tests/test_eval_script.py -v
 | `GET /track-search?q=` | Autocomplete search for a track via Spotify |
 | `POST /search` | Scores a track against one or more ingested playlists |
 | `POST /playlists/{playlist_id}/tracks` | Adds a track to the given Spotify playlist |
+| `GET /me` | Returns the current user's Spotify profile info |
+
+## Client-side caching
+
+Two React contexts sit above the `/home` and `/profile` routes (see `client/src/context/`) so switching between pages doesn't re-trigger loading spinners or duplicate network requests:
+
+- **`PlaylistsContext`** — owns the `/playlists` fetch, the ingestion-progress polling loop against `/playlists/status`, and per-playlist search results.
+- **`ProfileContext`** — owns the `/me` fetch. It only runs once per session so bouncing back and forth between the two pages is instant after the first load.
+
+Both contexts reset naturally when navigating back to `/` (login), since that's outside the layout route they're scoped to.
 
 ## Notes
 

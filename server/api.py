@@ -31,7 +31,7 @@ sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
     client_id=os.getenv("SPOTIFY_CLIENT_ID"),
     client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
     redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI"),
-    scope="playlist-read-private playlist-read-collaborative playlist-modify-private playlist-modify-public"
+    scope="playlist-read-private playlist-read-collaborative playlist-modify-private playlist-modify-public user-top-read"
 ))
 
 @app.get("/login")
@@ -231,3 +231,64 @@ def add_track_to_playlist(playlist_id: str, body: AddTrackRequest):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/me")
+def get_me():
+    try:
+        me = sp.current_user()
+        images = me.get("images") or []
+        user_id = me.get("id")
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # owned playlist count
+    owned_playlists = 0
+    try:
+        playlists = sp.current_user_playlists()
+        while playlists:
+            owned_playlists += sum(1 for p in playlists["items"] if p["owner"]["id"] == user_id)
+            playlists = sp.next(playlists) if playlists.get("next") else None
+    except Exception as e:
+        print(f"[/me] failed to count owned playlists: {e}")
+
+    # top artists/tracks
+    top_artists = []
+    try:
+        data = sp.current_user_top_artists(limit=10, time_range="medium_term")
+        top_artists = [
+            {
+                "name": a["name"],
+                "image_url": a["images"][0]["url"] if a.get("images") else None,
+            }
+            for a in data.get("items", [])
+        ]
+    except Exception as e:
+        print(f"[/me] failed to fetch top artists: {e}")
+
+    top_tracks = []
+    try:
+        data = sp.current_user_top_tracks(limit=10, time_range="medium_term")
+        top_tracks = [
+            {
+                "name": t["name"],
+                "artist": t["artists"][0]["name"] if t.get("artists") else "",
+                "image_url": t["album"]["images"][0]["url"] if t.get("album", {}).get("images") else None,
+            }
+            for t in data.get("items", [])
+        ]
+    except Exception as e:
+        print(f"[/me] failed to fetch top tracks: {e}")
+
+    return {
+        "id": user_id,
+        "display_name": me.get("display_name"),
+        "email": me.get("email"),
+        "followers": (me.get("followers") or {}).get("total"),
+        "product": me.get("product"),
+        "image_url": images[0]["url"] if images else None,
+        "spotify_url": (me.get("external_urls") or {}).get("spotify"),
+        "owned_playlists": owned_playlists,
+        "top_artists": top_artists,
+        "top_tracks": top_tracks,
+    }
