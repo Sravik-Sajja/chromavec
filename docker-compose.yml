@@ -5,6 +5,12 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   api:
     build: ./server
@@ -18,7 +24,14 @@ services:
     volumes:
       - ./server:/app
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
+      interval: 7s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   worker:
     build: ./server
@@ -30,7 +43,8 @@ services:
     volumes:
       - ./server:/app
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
 
   client:
     build: ./client
@@ -41,7 +55,8 @@ services:
       - ./client:/app
       - client_node_modules:/app/node_modules
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     environment:
       - CI=true
     stdin_open: true

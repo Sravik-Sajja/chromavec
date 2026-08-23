@@ -401,3 +401,165 @@ def test_add_track_to_playlist_rejects_missing_track_id(client, mock_sp):
     resp = client.post("/playlists/pl1/tracks", json={})
     assert resp.status_code == 422
     mock_sp.playlist_add_items.assert_not_called()
+
+# ── /me ───────────────────────────────────────────────────────────────────
+
+def _top_artist(name="Artist A", image_url="https://img/a.jpg"):
+    return {
+        "name": name,
+        "images": [{"url": image_url}] if image_url else [],
+    }
+
+
+def _top_track(name="Song A", artist="Artist A", image_url="https://img/t.jpg"):
+    return {
+        "name": name,
+        "artists": [{"name": artist}] if artist else [],
+        "album": {"images": [{"url": image_url}] if image_url else []},
+    }
+
+
+def _me_payload(**overrides):
+    payload = {
+        "id": "user1",
+        "display_name": "Test User",
+        "email": "test@example.com",
+        "followers": {"total": 42},
+        "product": "premium",
+        "images": [{"url": "https://img/avatar.jpg"}],
+        "external_urls": {"spotify": "https://open.spotify.com/user/user1"},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_me_returns_full_profile(client, mock_sp):
+    mock_sp.current_user.return_value = _me_payload()
+    mock_sp.current_user_playlists.return_value = {
+        "items": [
+            {"owner": {"id": "user1"}},
+            {"owner": {"id": "someone_else"}},
+        ],
+        "next": None,
+    }
+    mock_sp.current_user_top_artists.return_value = {"items": [_top_artist()]}
+    mock_sp.current_user_top_tracks.return_value = {"items": [_top_track()]}
+
+    resp = client.get("/me")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == "user1"
+    assert body["display_name"] == "Test User"
+    assert body["email"] == "test@example.com"
+    assert body["followers"] == 42
+    assert body["product"] == "premium"
+    assert body["image_url"] == "https://img/avatar.jpg"
+    assert body["spotify_url"] == "https://open.spotify.com/user/user1"
+    assert body["owned_playlists"] == 1
+    assert body["top_artists"] == [{"name": "Artist A", "image_url": "https://img/a.jpg"}]
+    assert body["top_tracks"] == [{"name": "Song A", "artist": "Artist A", "image_url": "https://img/t.jpg"}]
+
+    mock_sp.current_user_top_artists.assert_called_once_with(limit=10, time_range="medium_term")
+    mock_sp.current_user_top_tracks.assert_called_once_with(limit=10, time_range="medium_term")
+
+
+def test_me_counts_owned_playlists_across_pagination(client, mock_sp):
+    mock_sp.current_user.return_value = _me_payload()
+
+    page1 = {
+        "items": [{"owner": {"id": "user1"}}, {"owner": {"id": "other"}}],
+        "next": "page2-token",
+    }
+    page2 = {
+        "items": [{"owner": {"id": "user1"}}, {"owner": {"id": "user1"}}],
+        "next": None,
+    }
+    mock_sp.current_user_playlists.return_value = page1
+    mock_sp.next.side_effect = [page2]
+    mock_sp.current_user_top_artists.return_value = {"items": []}
+    mock_sp.current_user_top_tracks.return_value = {"items": []}
+
+    resp = client.get("/me")
+
+    assert resp.json()["owned_playlists"] == 3
+    mock_sp.next.assert_called_once_with(page1)
+
+
+def test_me_handles_missing_images_gracefully(client, mock_sp):
+    mock_sp.current_user.return_value = _me_payload(images=[])
+    mock_sp.current_user_playlists.return_value = {"items": [], "next": None}
+    mock_sp.current_user_top_artists.return_value = {"items": [_top_artist(image_url=None)]}
+    mock_sp.current_user_top_tracks.return_value = {"items": [_top_track(image_url=None)]}
+
+    resp = client.get("/me")
+
+    body = resp.json()
+    assert body["image_url"] is None
+    assert body["top_artists"][0]["image_url"] is None
+    assert body["top_tracks"][0]["image_url"] is None
+
+
+def test_me_handles_no_followers_or_product(client, mock_sp):
+    mock_sp.current_user.return_value = _me_payload(followers=None, product=None)
+    mock_sp.current_user_playlists.return_value = {"items": [], "next": None}
+    mock_sp.current_user_top_artists.return_value = {"items": []}
+    mock_sp.current_user_top_tracks.return_value = {"items": []}
+
+    resp = client.get("/me")
+
+    body = resp.json()
+    assert body["followers"] is None
+    assert body["product"] is None
+
+
+def test_me_swallows_top_artists_failure(client, mock_sp):
+    mock_sp.current_user.return_value = _me_payload()
+    mock_sp.current_user_playlists.return_value = {"items": [], "next": None}
+    mock_sp.current_user_top_artists.side_effect = Exception("no user-top-read scope")
+    mock_sp.current_user_top_tracks.return_value = {"items": [_top_track()]}
+
+    resp = client.get("/me")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["top_artists"] == []
+    assert len(body["top_tracks"]) == 1  # unaffected by the top-artists failure
+
+
+def test_me_swallows_top_tracks_failure(client, mock_sp):
+    mock_sp.current_user.return_value = _me_payload()
+    mock_sp.current_user_playlists.return_value = {"items": [], "next": None}
+    mock_sp.current_user_top_artists.return_value = {"items": [_top_artist()]}
+    mock_sp.current_user_top_tracks.side_effect = Exception("no user-top-read scope")
+
+    resp = client.get("/me")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["top_tracks"] == []
+    assert len(body["top_artists"]) == 1  # unaffected by the top-tracks failure
+
+
+def test_me_swallows_owned_playlist_count_failure(client, mock_sp):
+    mock_sp.current_user.return_value = _me_payload()
+    mock_sp.current_user_playlists.side_effect = Exception("playlists unavailable")
+    mock_sp.current_user_top_artists.return_value = {"items": []}
+    mock_sp.current_user_top_tracks.return_value = {"items": []}
+
+    resp = client.get("/me")
+
+    assert resp.status_code == 200
+    assert resp.json()["owned_playlists"] == 0
+
+
+def test_me_returns_500_when_current_user_fails(client, mock_sp):
+    mock_sp.current_user.side_effect = Exception("token expired")
+
+    resp = client.get("/me")
+
+    assert resp.status_code == 500
+    assert "token expired" in resp.json()["detail"]
+    # a failure fetching the base profile shouldn't attempt any follow-up calls
+    mock_sp.current_user_playlists.assert_not_called()
+    mock_sp.current_user_top_artists.assert_not_called()

@@ -16,6 +16,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  border-inline: 1px solid var(--border);
   background:
     radial-gradient(ellipse 60% 50% at 50% 0%, rgba(29, 185, 84, 0.14), transparent 70%),
     #0a0a0a;
