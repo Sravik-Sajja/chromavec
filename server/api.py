@@ -13,6 +13,7 @@ import traceback
 from methods import similarity as similarity_processor
 from methods import snapshots
 from methods.playlists import get_playlist_recommendations
+import json
 
 app = FastAPI()
 
@@ -91,14 +92,21 @@ def get_playlists():
     for p in accessible:
         playlist_id = p["id"]
         snapshot_id = p["snapshot_id"]
-        print(p["name"], snapshot_id)
 
         try:
             # snapshot is up to date
             row = snapshots.get_snapshot(playlist_id)
             if snapshots.is_up_to_date(row, snapshot_id):
-                track_ids, _ = collect_tracks(sp, playlist_id)
-                recommendations = get_playlist_recommendations(track_ids)
+                track_ids = json.loads(row["track_ids"] or "[]")
+                recommendations = json.loads(row["recommendations"] or "[]")
+
+                if snapshots.is_stale(row):
+                    try:
+                        recommendations = get_playlist_recommendations(track_ids)
+                        snapshots.update_recommendations(playlist_id, snapshot_id, recommendations)
+                    except Exception as e:
+                        # keep serving the old recommendations rather
+                        print(f"[recs refresh] failed for {p['name']}: {e}")
                 result_items.append({
                     "id": playlist_id,
                     "name": p["name"],
@@ -112,7 +120,7 @@ def get_playlists():
                 })
                 continue
 
-            # a job for this snapshot is already running — don't create another
+            # a job for this snapshot is already running
             if snapshots.is_processing(row, snapshot_id):
                 result_items.append({
                     "id": playlist_id,

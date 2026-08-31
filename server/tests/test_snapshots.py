@@ -2,8 +2,9 @@
 Tests for methods/snapshots.py
 """
 import pytest
-
+import json
 from methods import snapshots
+from datetime import datetime, timedelta, timezone
 
 
 @pytest.fixture(autouse=True)
@@ -162,3 +163,101 @@ def test_wal_mode_is_enabled():
     with snapshots._connect() as conn:
         mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
     assert mode.lower() == "wal"
+
+# ── mark_result: track_ids / recommendations round-trip ─────────────────────
+
+def test_mark_result_persists_track_ids_and_recommendations():
+    snapshots.mark_processing("pl1", "snap1", "job-1", total_tracks=2)
+    snapshots.mark_result(
+        "pl1", "snap1", total_tracks=2, total_ingested=2,
+        track_ids=["a", "b"],
+        recommendations=[{"name": "Rec", "artist": "X", "score": 88.5}],
+    )
+
+    row = snapshots.get_snapshot("pl1")
+    assert json.loads(row["track_ids"]) == ["a", "b"]
+    assert json.loads(row["recommendations"]) == [{"name": "Rec", "artist": "X", "score": 88.5}]
+
+
+def test_mark_result_defaults_to_empty_lists_when_not_provided():
+    snapshots.mark_processing("pl1", "snap1", "job-1", total_tracks=1)
+    snapshots.mark_result("pl1", "snap1", total_tracks=1, total_ingested=1)
+
+    row = snapshots.get_snapshot("pl1")
+    assert json.loads(row["track_ids"]) == []
+    assert json.loads(row["recommendations"]) == []
+
+
+def test_mark_processing_clears_prior_track_ids_and_recommendations():
+    # first ingestion cycle completes and caches a result
+    snapshots.mark_processing("pl1", "snap1", "job-1", total_tracks=1)
+    snapshots.mark_result(
+        "pl1", "snap1", total_tracks=1, total_ingested=1,
+        track_ids=["a"], recommendations=[{"name": "Old"}],
+    )
+
+    # playlist changes -> new processing cycle starts; stale cached payload
+    # shouldn't leak into the new (not-yet-done) row
+    snapshots.mark_processing("pl1", "snap2", "job-2", total_tracks=2)
+
+    row = snapshots.get_snapshot("pl1")
+    assert row["track_ids"] is None
+    assert row["recommendations"] is None
+
+from datetime import datetime, timedelta, timezone
+
+# ── is_stale ──────────────────────────────────────────────────────────────
+
+def test_is_stale_false_for_recent_update():
+    snapshots.mark_processing("pl1", "snap1", "job-1", total_tracks=1)
+    snapshots.mark_result("pl1", "snap1", total_tracks=1, total_ingested=1)
+    row = snapshots.get_snapshot("pl1")
+    assert snapshots.is_stale(row) is False
+
+
+def test_is_stale_true_after_interval_elapsed():
+    snapshots.mark_processing("pl1", "snap1", "job-1", total_tracks=1)
+    snapshots.mark_result("pl1", "snap1", total_tracks=1, total_ingested=1)
+
+    with snapshots._connect() as conn:
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+        conn.execute("UPDATE playlist_snapshots SET updated_at = ? WHERE playlist_id = 'pl1'", (old_ts,))
+
+    row = snapshots.get_snapshot("pl1")
+    assert snapshots.is_stale(row) is True
+
+
+def test_is_stale_false_for_unseen_playlist():
+    assert snapshots.is_stale(None) is False
+
+
+# ── update_recommendations ───────────────────────────────────────────────
+
+def test_update_recommendations_replaces_payload_and_bumps_updated_at():
+    snapshots.mark_processing("pl1", "snap1", "job-1", total_tracks=1)
+    snapshots.mark_result(
+        "pl1", "snap1", total_tracks=1, total_ingested=1,
+        track_ids=["a"], recommendations=[{"name": "Old"}],
+    )
+    old_row = snapshots.get_snapshot("pl1")
+
+    snapshots.update_recommendations("pl1", "snap1", [{"name": "New", "artist": "X", "score": 91.0}])
+
+    row = snapshots.get_snapshot("pl1")
+    assert json.loads(row["recommendations"]) == [{"name": "New", "artist": "X", "score": 91.0}]
+    # track_ids/status/total_ingested untouched
+    assert row["track_ids"] == old_row["track_ids"]
+    assert row["status"] == snapshots.STATUS_DONE
+    assert row["total_ingested"] == 1
+    assert row["updated_at"] != old_row["updated_at"]
+
+
+def test_update_recommendations_is_noop_for_wrong_snapshot_id():
+    snapshots.mark_processing("pl1", "snap1", "job-1", total_tracks=1)
+    snapshots.mark_result("pl1", "snap1", total_tracks=1, total_ingested=1, recommendations=[{"name": "Old"}])
+
+    # a stale/superseded snapshot_id shouldn't be able to clobber a newer row
+    snapshots.update_recommendations("pl1", "wrong_snap", [{"name": "Should not apply"}])
+
+    row = snapshots.get_snapshot("pl1")
+    assert json.loads(row["recommendations"]) == [{"name": "Old"}]

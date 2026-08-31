@@ -8,6 +8,9 @@ def download_track(track_id, track_name, artist_name, expected_duration_ms=None)
         'outtmpl': f'temp/{track_id}.%(ext)s',
         'quiet': True,
         'no_warnings': True,
+        'socket_timeout': 10,
+        'retries': 1,
+        'fragment_retries': 1,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',

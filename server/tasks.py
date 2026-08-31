@@ -13,6 +13,8 @@ def process_playlist_task(playlist_id, track_ids, serializable_tracks, snapshot_
         snapshot_id,
         total_tracks=len(track_ids),
         total_ingested=result["total_ingested"],
+        track_ids=result["track_ids"],
+        recommendations=result["recommendations"],
     )
 
     return result

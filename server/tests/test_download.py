@@ -77,3 +77,14 @@ def test_download_track_boundary_ratio_does_not_raise():
     with patch("methods.download.yt_dlp.YoutubeDL", return_value=_mock_ydl_cm(mock_ydl_instance)), \
          patch("methods.download.MP3", return_value=mock_mp3_instance):
         download_track("track1", "Song", "Artist", expected_duration_ms=200_000)
+
+def test_download_track_does_not_use_unbounded_retries():
+    """Regression guard: yt-dlp's own default (10) or an explicit None/unlimited
+    retry count would reintroduce the unbounded-hang bug this config fixes."""
+    mock_ydl_instance = MagicMock()
+    with patch("methods.download.yt_dlp.YoutubeDL", return_value=_mock_ydl_cm(mock_ydl_instance)) as mock_cls:
+        download_track("track1", "Song", "Artist")
+
+    opts_passed = mock_cls.call_args.args[0]
+    assert opts_passed.get("socket_timeout") is not None
+    assert opts_passed.get("retries") not in (None, float("inf"))

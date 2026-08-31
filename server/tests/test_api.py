@@ -4,6 +4,7 @@ Tests for api.py
 Spotify credentials are faked before import since api.py builds a module-level SpotifyOAuth client at import time
 """
 import os
+import json
 
 os.environ.setdefault("SPOTIFY_CLIENT_ID", "test-client-id")
 os.environ.setdefault("SPOTIFY_CLIENT_SECRET", "test-client-secret")
@@ -180,12 +181,20 @@ def test_playlists_cache_hit_skips_celery_and_returns_result_inline(client, mock
         "items": [_accessible_playlist(owner_id="user1", snapshot_id="snap1")]
     }
 
+    cached_row = {
+        "total_tracks": 2,
+        "total_ingested": 2,
+        "track_ids": json.dumps(["t1", "t2"]),
+        "recommendations": json.dumps([{"name": "Rec", "artist": "A", "score": 90.0}]),
+    }
+
     with patch("api.snapshots") as mock_snapshots, \
-         patch("api.collect_tracks", return_value=(["t1", "t2"], [])), \
-         patch("api.get_playlist_recommendations", return_value=[{"name": "Rec", "artist": "A", "score": 90.0}]), \
+         patch("api.collect_tracks") as mock_collect, \
+         patch("api.get_playlist_recommendations") as mock_recs, \
          patch("api.process_playlist_task") as mock_task:
-        mock_snapshots.get_snapshot.return_value = {"total_tracks": 2, "total_ingested": 2}
+        mock_snapshots.get_snapshot.return_value = cached_row
         mock_snapshots.is_up_to_date.return_value = True
+        mock_snapshots.is_stale.return_value = False
 
         resp = client.get("/playlists")
 
@@ -195,6 +204,8 @@ def test_playlists_cache_hit_skips_celery_and_returns_result_inline(client, mock
     assert item["result"]["track_ids"] == ["t1", "t2"]
     assert item["result"]["recommendations"][0]["name"] == "Rec"
     mock_task.delay.assert_not_called()
+    mock_collect.assert_not_called()
+    mock_recs.assert_not_called()
 
 
 def test_playlists_already_processing_reuses_existing_job_without_reenqueue(client, mock_sp):
@@ -238,6 +249,88 @@ def test_playlists_swallows_per_playlist_exceptions(client, mock_sp):
     assert item["job_id"] is None
     assert item["result"] is None
     assert item["total_tracks"] == 0
+
+def test_playlists_up_to_date_and_stale_refreshes_recommendations(client, mock_sp):
+    mock_sp.current_user.return_value = {"id": "user1"}
+    mock_sp.current_user_playlists.return_value = {
+        "items": [_accessible_playlist(owner_id="user1", snapshot_id="snap1")]
+    }
+
+    cached_row = {
+        "total_tracks": 2,
+        "total_ingested": 2,
+        "track_ids": json.dumps(["t1", "t2"]),
+        "recommendations": json.dumps([{"name": "Old"}]),
+    }
+
+    with patch("api.snapshots") as mock_snapshots, \
+         patch("api.get_playlist_recommendations", return_value=[{"name": "Fresh", "artist": "A", "score": 95.0}]) as mock_recs, \
+         patch("api.collect_tracks") as mock_collect:
+        mock_snapshots.get_snapshot.return_value = cached_row
+        mock_snapshots.is_up_to_date.return_value = True
+        mock_snapshots.is_stale.return_value = True
+
+        resp = client.get("/playlists")
+
+    item = resp.json()["items"][0]
+    assert item["result"]["recommendations"] == [{"name": "Fresh", "artist": "A", "score": 95.0}]
+    mock_recs.assert_called_once_with(["t1", "t2"])
+    mock_snapshots.update_recommendations.assert_called_once_with("pl1", "snap1", [{"name": "Fresh", "artist": "A", "score": 95.0}])
+    # still a cache hit for ingestion — no re-collection/re-ingestion triggered
+    mock_collect.assert_not_called()
+
+
+def test_playlists_up_to_date_and_not_stale_skips_recommendation_refresh(client, mock_sp):
+    mock_sp.current_user.return_value = {"id": "user1"}
+    mock_sp.current_user_playlists.return_value = {
+        "items": [_accessible_playlist(owner_id="user1", snapshot_id="snap1")]
+    }
+
+    cached_row = {
+        "total_tracks": 2,
+        "total_ingested": 2,
+        "track_ids": json.dumps(["t1", "t2"]),
+        "recommendations": json.dumps([{"name": "Still Fresh"}]),
+    }
+
+    with patch("api.snapshots") as mock_snapshots, \
+         patch("api.get_playlist_recommendations") as mock_recs:
+        mock_snapshots.get_snapshot.return_value = cached_row
+        mock_snapshots.is_up_to_date.return_value = True
+        mock_snapshots.is_stale.return_value = False
+
+        resp = client.get("/playlists")
+
+    item = resp.json()["items"][0]
+    assert item["result"]["recommendations"] == [{"name": "Still Fresh"}]
+    mock_recs.assert_not_called()
+    mock_snapshots.update_recommendations.assert_not_called()
+
+
+def test_playlists_stale_refresh_failure_falls_back_to_cached_recommendations(client, mock_sp):
+    mock_sp.current_user.return_value = {"id": "user1"}
+    mock_sp.current_user_playlists.return_value = {
+        "items": [_accessible_playlist(owner_id="user1", snapshot_id="snap1")]
+    }
+
+    cached_row = {
+        "total_tracks": 2,
+        "total_ingested": 2,
+        "track_ids": json.dumps(["t1", "t2"]),
+        "recommendations": json.dumps([{"name": "Old But Safe"}]),
+    }
+
+    with patch("api.snapshots") as mock_snapshots, \
+         patch("api.get_playlist_recommendations", side_effect=RuntimeError("pinecone down")):
+        mock_snapshots.get_snapshot.return_value = cached_row
+        mock_snapshots.is_up_to_date.return_value = True
+        mock_snapshots.is_stale.return_value = True
+
+        resp = client.get("/playlists")
+
+    item = resp.json()["items"][0]
+    # request shouldn't 500 or lose the playlist — old recs still served
+    assert item["result"]["recommendations"] == [{"name": "Old But Safe"}]
 
 
 # ── /playlists/status (batch) ────────────────────────────────────────────

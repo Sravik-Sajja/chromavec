@@ -193,7 +193,7 @@ pytest tests/test_eval_script.py -v
 |---|---|
 | `GET /login` | Redirects to Spotify's OAuth authorization page |
 | `GET /callback` | Spotify OAuth callback, redirects to the client app |
-| `GET /playlists` | Lists the user's accessible playlists. Returns ingestion results inline for playlists whose snapshot is already up to date, reuses the in-flight job for playlists still processing, and kicks off a new async ingestion job otherwise |
+| `GET /playlists` | Lists the user's accessible playlists. Returns cached ingestion results directly from the snapshot table for playlists whose snapshot is up to date (refreshing recommendations in the background if the cache is over a week old), reuses the in-flight job for playlists still processing, and kicks off a new async ingestion job otherwise |
 | `GET /playlists/status?job_ids=` | Polls ingestion job status for one or more jobs at once (comma-separated IDs), returning per-job state (`pending`/`done`/`error`) keyed by job ID |
 | `GET /track-search?q=` | Autocomplete search for a track via Spotify |
 | `POST /search` | Scores a track against one or more ingested playlists |
